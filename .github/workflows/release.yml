@@ -1,13 +1,20 @@
 name: Release
 
-# Builds the binaries for a version tag, attests their provenance, and publishes a GitHub release.
+# Builds the binaries for a version tag, signs and notarizes the macOS ones with Developer ID,
+# attests provenance, publishes a GitHub release, and updates the Homebrew tap.
 # Releases are immutable in this organization, so a published binary can never be replaced.
 on:
   push:
     tags: ["v*"]
   # Builds and checks the binaries on changes to the release files, without publishing.
   pull_request:
-    paths: [".github/workflows/release.yml", "install.sh", "package.json", "bun.lock"]
+    paths:
+      - ".github/workflows/release.yml"
+      - "install.sh"
+      - "macos/**"
+      - "scripts/homebrew-formula.sh"
+      - "package.json"
+      - "bun.lock"
 
 permissions: {}
 
@@ -17,7 +24,7 @@ concurrency:
 
 jobs:
   build:
-    # macOS, so the darwin binaries can be signed (ad hoc) and run here before release.
+    # macOS, so the darwin binaries can be signed and run here before release.
     runs-on: macos-latest
     timeout-minutes: 20
     permissions:
@@ -49,15 +56,102 @@ jobs:
             if [ "$target" = "windows-x64" ]; then suffix=".exe"; fi
             bun build src/main.ts --compile --minify --target="bun-$target" --outfile "release/betteroff-$target$suffix"
           done
+          # Ad hoc for now; the notarize job replaces this with Developer ID on a release.
           codesign --force --sign - release/betteroff-darwin-arm64 release/betteroff-darwin-x64
           ./release/betteroff-darwin-arm64 --version
           (cd release && shasum -a 256 betteroff-* > SHA256SUMS && cat SHA256SUMS)
+      - name: Check the Homebrew formula generates
+        run: sh scripts/homebrew-formula.sh 0.0.0 release/SHA256SUMS > /dev/null
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release
           path: release/
           if-no-files-found: error
           retention-days: 7
+
+  # Signs the macOS binaries with the Developer ID certificate and hardened runtime, and has Apple
+  # notarize them. Runs on release tags once the NOTARIZE repository variable is "true"; from then
+  # on a missing or failing step stops the release instead of shipping ad hoc binaries.
+  notarize:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v') && vars.NOTARIZE == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 30
+    environment: release
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: macos
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release
+          path: release
+      - name: Import the Developer ID certificate into a temporary keychain
+        env:
+          P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
+        run: |
+          test -n "$P12_BASE64" && test -n "$P12_PASSWORD" || { echo "Developer ID secrets are not set"; exit 1; }
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password="$(openssl rand -base64 24)"
+          printf '%s' "$P12_BASE64" | base64 --decode > "$RUNNER_TEMP/developer-id.p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$RUNNER_TEMP/developer-id.p12" -k "$keychain" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/developer-id.p12"
+          identity="$(security find-identity -v -p codesigning "$keychain" | awk -F'"' '/Developer ID Application/ { print $2; exit }')"
+          test -n "$identity" || { echo "no Developer ID Application identity in the certificate"; exit 1; }
+          echo "IDENTITY=$identity" >> "$GITHUB_ENV"
+      - name: Sign with Developer ID and the hardened runtime
+        run: |
+          for file in release/betteroff-darwin-arm64 release/betteroff-darwin-x64; do
+            codesign --force --timestamp --options runtime --entitlements macos/entitlements.plist --sign "$IDENTITY" "$file"
+            codesign --verify --strict --verbose=2 "$file"
+          done
+          ./release/betteroff-darwin-arm64 --version
+      - name: Notarize
+        env:
+          NOTARY_KEY: ${{ secrets.APPLE_NOTARY_KEY_P8 }}
+          NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: |
+          test -n "$NOTARY_KEY" && test -n "$NOTARY_KEY_ID" && test -n "$NOTARY_ISSUER_ID" || { echo "notary secrets are not set"; exit 1; }
+          key="$RUNNER_TEMP/notary.p8"
+          printf '%s\n' "$NOTARY_KEY" > "$key"
+          for target in darwin-arm64 darwin-x64; do
+            ditto -c -k --keepParent "release/betteroff-$target" "$RUNNER_TEMP/betteroff-$target.zip"
+            xcrun notarytool submit "$RUNNER_TEMP/betteroff-$target.zip" \
+              --key "$key" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" \
+              --wait --timeout 25m --output-format json > "$RUNNER_TEMP/notary-$target.json"
+            status="$(plutil -extract status raw -o - "$RUNNER_TEMP/notary-$target.json")"
+            id="$(plutil -extract id raw -o - "$RUNNER_TEMP/notary-$target.json")"
+            echo "betteroff-$target: $status ($id)"
+            if [ "$status" != "Accepted" ]; then
+              xcrun notarytool log "$id" --key "$key" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID"
+              exit 1
+            fi
+          done
+          rm "$key"
+          # A command-line binary cannot be stapled; Gatekeeper looks the ticket up online.
+          spctl --assess --type open --context context:primary-signature -vv release/betteroff-darwin-arm64
+      # Only the macOS binaries change here; publish puts them over the build's copies.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-macos
+          path: |
+            release/betteroff-darwin-arm64
+            release/betteroff-darwin-x64
+          if-no-files-found: error
+          retention-days: 7
+      - name: Remove the temporary keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
 
   check-linux:
     needs: build
@@ -70,12 +164,15 @@ jobs:
           name: release
           path: release
       - run: |
-          cd release && sha256sum --check SHA256SUMS
-          chmod +x betteroff-linux-x64 && ./betteroff-linux-x64 --version
+          chmod +x release/betteroff-linux-x64 && ./release/betteroff-linux-x64 --version
 
   publish:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build, check-linux]
+    needs: [build, notarize, check-linux]
+    # Publishes when notarization succeeded, or was not switched on (vars.NOTARIZE).
+    if: >-
+      always() && startsWith(github.ref, 'refs/tags/v') &&
+      needs.build.result == 'success' && needs.check-linux.result == 'success' &&
+      (needs.notarize.result == 'success' || (needs.notarize.result == 'skipped' && vars.NOTARIZE != 'true'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -88,6 +185,15 @@ jobs:
           name: release
           path: release
       - run: cd release && sha256sum --check SHA256SUMS
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: needs.notarize.result == 'success'
+        with:
+          name: release-macos
+          path: release-macos
+      - name: Use the notarized macOS binaries and write the final checksums
+        run: |
+          if [ -d release-macos ]; then cp -f release-macos/betteroff-darwin-* release/; fi
+          cd release && sha256sum betteroff-* > SHA256SUMS && cat SHA256SUMS
       # Signed SLSA provenance tying each binary to this workflow run and commit.
       # Verify with: gh attestation verify <file> --repo raintree-technology/betteroff.cli
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
@@ -98,15 +204,60 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
+          NOTARIZED: ${{ needs.notarize.result == 'success' }}
         run: |
+          if [ "$NOTARIZED" = "true" ]; then
+            macos="The macOS binaries are signed with Developer ID and notarized by Apple."
+          else
+            macos="The macOS binaries are signed ad hoc, not notarized: install with the script or Homebrew."
+          fi
           gh release create "$TAG" release/* --repo "$REPO" --verify-tag --title "BetterOff CLI $TAG" --notes-file - <<NOTES
           Read-only BetterOff CLI. Install on macOS or Linux:
 
+              brew install raintree-technology/tap/betteroff
+
+          or:
+
               curl -fsSL https://raw.githubusercontent.com/$REPO/$TAG/install.sh | sh
 
-          The script checks each download against SHA256SUMS, and against its build provenance when the GitHub CLI is installed. To check a binary yourself:
+          $macos The script checks each download against SHA256SUMS, and against its build provenance when the GitHub CLI is installed. To check a binary yourself:
 
               gh attestation verify betteroff-darwin-arm64 --repo $REPO
 
           On Windows, download betteroff-windows-x64.exe and check it against SHA256SUMS.
           NOTES
+
+  homebrew:
+    needs: publish
+    if: success() && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          path: cli
+      # The deploy key can write only to the tap repository.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: raintree-technology/homebrew-tap
+          ssh-key: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+          path: tap
+      - name: Update the formula from the published checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh release download "$TAG" --repo "$REPO" --pattern SHA256SUMS --dir release
+          sh cli/scripts/homebrew-formula.sh "${TAG#v}" release/SHA256SUMS > tap/Formula/betteroff.rb
+          cd tap
+          git config user.name "betteroff-cli release"
+          git config user.email "277948009+admin-raintree@users.noreply.github.com"
+          git add Formula/betteroff.rb
+          git diff --cached --quiet && { echo "formula already up to date"; exit 0; }
+          git commit -m "betteroff ${TAG#v}"
+          git push origin HEAD:main
