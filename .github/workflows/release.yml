@@ -229,7 +229,8 @@ jobs:
 
   homebrew:
     needs: publish
-    if: success() && startsWith(github.ref, 'refs/tags/v')
+    # A skipped notarize job upstream makes success() false here, so check publish itself.
+    if: always() && needs.publish.result == 'success' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: release

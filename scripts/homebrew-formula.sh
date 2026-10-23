@@ -35,7 +35,6 @@ cat <<EOF
 class Betteroff < Formula
   desc "Read your BetterOff household finances from the terminal, read-only"
   homepage "https://github.com/$repo"
-  version "$version"
   license "MIT"
 
   on_macos do
