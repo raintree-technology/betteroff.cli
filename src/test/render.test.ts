@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { plainStyle, renderPretty } from "../render";
 
 describe("renderPretty layout", () => {
-	test("renders rows as a table: label, money, dates, the rest, then ids", () => {
+	test("renders rows as a table: label, money, the rest, timestamps, flags, ids", () => {
 		const output = renderPretty(
 			[
 				{
@@ -29,9 +29,9 @@ describe("renderPretty layout", () => {
 		);
 
 		expect(output.split("\n")).toEqual([
-			"Display name  Balance    Balance as of     Currency  Is hidden  Id",
-			"Checking      $1,234.50  2026-10-21 14:05  USD       no         acc-1",
-			"Brokerage     -          -                 USD       -          acc-2",
+			"Display name  Balance    Currency  Balance as of     Is hidden  Id",
+			"Checking      $1,234.50  USD       2026-10-21 14:05  no         acc-1",
+			"Brokerage     -          USD       -                 -          acc-2",
 			"",
 		]);
 	});
@@ -142,6 +142,34 @@ describe("renderPretty tool results", () => {
 			"  Symbol  Value       Quantity",
 			"  AMAT    $15,728.90  40",
 			"  ABCL    $12,450.00  1000",
+			"",
+		]);
+	});
+
+	test("formats only decimal text as money, and names plain-text label columns first", () => {
+		const output = renderPretty(
+			{
+				ok: true,
+				currency: null,
+				data: {
+					expenses: "7245.89",
+					totalDays: 31,
+					changeOver30Days: null,
+					protocols: [{ netValueUsd: 1.5, positionCount: 1, venue: "Morpho" }],
+				},
+			},
+			100,
+			plainStyle,
+		);
+
+		expect(output.split("\n")).toEqual([
+			"Expenses             7245.89",
+			"Total days           31",
+			"Change over 30 days  -",
+			"",
+			"Protocols",
+			"  Venue   Net value usd  Position count",
+			"  Morpho  $1.50          1",
 			"",
 		]);
 	});

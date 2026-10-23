@@ -19,17 +19,23 @@ const INLINE_LIST = 80;
 
 const DECIMAL = /^-?\d+(?:\.\d+)?$/;
 
-const MONEY_KEY =
-	/amount|balance|value|networth|total|price|change|cost|basis|gain|income|spend|payment|principal|fee|outflow|inflow|received|spent/i;
-
 const PERCENT_KEY = /percent|pct/i;
 
-const NOT_MONEY_KEY = /quantity|percent|pct|rate|apr|apy|count|units|shares|currency|source/i;
+/** Decimal text is money unless its name says otherwise; the API sends amounts as decimal strings. */
+const NOT_MONEY_KEY = /quantity|mask|percent|pct|rate|apr|apy|count|units|shares|zip|version|year/i;
 
-const LABEL_KEY = /^(?:displayName|name|merchant|merchantName|symbol|title)$/;
+/** Plain-number amounts are named for their currency, such as `totalAssetsUsd`. */
+const USD_NUMBER_KEY = /Usd$/;
+
+const LABEL_KEY =
+	/^(?:displayName|name|merchant|merchantName|symbol|title|headline|label|protocol|description)$/;
+
+const DATE_KEY = /^date$|Date$/;
+
+const TIMESTAMP_KEY = /At$|^asOf$|^timestamp$/;
 
 const ISO_DATETIME =
-	/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/;
+	/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})?$/;
 
 const objectSchema: z.ZodType<JsonObject> = z.record(z.string(), z.json());
 
@@ -43,9 +49,13 @@ const currencyCode = z.string().regex(/^[A-Z]{3}$/);
 const envelopeSchema = z.object({
 	ok: z.literal(true),
 	data: z.json(),
-	currency: currencyCode.optional(),
-	asOf: z.string().nullable().optional(),
-	quality: z.object({ state: z.string(), reasons: z.array(z.string()) }).optional(),
+	// Each field falls back on its own, so one odd field never shows the raw envelope.
+	currency: currencyCode.optional().catch(undefined),
+	asOf: z.string().nullable().catch(null),
+	quality: z
+		.object({ state: z.string(), reasons: z.array(z.string()) })
+		.optional()
+		.catch(undefined),
 	page: z
 		.object({
 			returnedCount: z.number(),
@@ -53,13 +63,15 @@ const envelopeSchema = z.object({
 			truncated: z.boolean(),
 			nextCursor: z.json().nullable(),
 		})
-		.optional(),
-	warnings: z.array(z.string()).default([]),
+		.optional()
+		.catch(undefined),
+	warnings: z.array(z.string()).catch([]),
 });
 
 function label(key: string): string {
 	const words = key
 		.replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+		.replace(/([a-z])(\d)/g, "$1 $2")
 		.replaceAll("_", " ")
 		.toLowerCase();
 
@@ -73,8 +85,15 @@ function currencyOf(row: JsonObject, view: View): string | undefined {
 	);
 }
 
-function isMoney(key: string, text: string): boolean {
-	return DECIMAL.test(text) && MONEY_KEY.test(key) && !NOT_MONEY_KEY.test(key);
+/** The currency to format this value in, or undefined when it is not an amount. */
+function moneyCurrency(key: string, value: JsonValue, row: JsonObject, view: View) {
+	const text = z.string().safeParse(value).data;
+
+	if (text !== undefined) {
+		return DECIMAL.test(text) && !NOT_MONEY_KEY.test(key) ? currencyOf(row, view) : undefined;
+	}
+
+	return USD_NUMBER_KEY.test(key) && z.number().safeParse(value).success ? "USD" : undefined;
 }
 
 function formatScalar(key: string, value: JsonValue, row: JsonObject, view: View): string {
@@ -91,11 +110,11 @@ function formatScalar(key: string, value: JsonValue, row: JsonObject, view: View
 	if (data === false) return "no";
 
 	const text = String(data);
-	const currency = currencyOf(row, view);
+	const currency = moneyCurrency(key, data, row, view);
 
 	if (PERCENT_KEY.test(key) && z.number().safeParse(data).success) return `${text}%`;
 
-	if (currency && isMoney(key, text)) {
+	if (currency) {
 		try {
 			return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(Number(text));
 		} catch {
@@ -114,22 +133,53 @@ function truncate(text: string, width: number): string {
 	return text.length <= width ? text : `${text.slice(0, Math.max(1, width - 1))}…`;
 }
 
-function columnRank(key: string, rows: JsonObject[]): number {
-	if (LABEL_KEY.test(key)) return 0;
+function isId(key: string): boolean {
+	return key === "id" || key.endsWith("Id");
+}
 
-	if (rows.some((row) => isMoney(key, String(row[key] ?? "")))) return 1;
+/** Text to read: not a number, a date, or a link. Missing values do not disqualify a column. */
+function isProse(value: JsonValue | undefined): boolean {
+	const text = z.string().safeParse(value).data;
 
-	if (/date|At$|asOf$/i.test(key)) return 2;
+	return (
+		text !== undefined && !DECIMAL.test(text) && !ISO_DATETIME.test(text) && !text.startsWith("http")
+	);
+}
 
-	if (key === "id" || key.endsWith("Id")) return 5;
+/** The column that names each row: a known label column, else the first column of plain text. */
+function labelColumns(columns: string[], rows: JsonObject[]): Set<string> {
+	const known = columns.flatMap((key) => (LABEL_KEY.test(key) ? [key] : []));
 
-	if (rows.every((row) => z.boolean().nullable().optional().safeParse(row[key]).success)) return 4;
+	if (known.length > 0) return new Set(known);
+
+	const first = columns.find(
+		(key) => !isId(key) && !DATE_KEY.test(key) && rows.every((row) => row[key] === null || row[key] === undefined || isProse(row[key])),
+	);
+
+	return new Set(first ? [first] : []);
+}
+
+function columnRank(key: string, rows: JsonObject[], labels: Set<string>, view: View): number {
+	if (labels.has(key)) return 0;
+
+	if (rows.some((row) => moneyCurrency(key, row[key] ?? null, row, view))) return 1;
+
+	if (PERCENT_KEY.test(key)) return 1;
+
+	if (DATE_KEY.test(key)) return 2;
+
+	if (isId(key)) return 6;
+
+	if (rows.every((row) => z.boolean().nullable().optional().safeParse(row[key]).success)) return 5;
+
+	if (TIMESTAMP_KEY.test(key)) return 4;
 
 	return 3;
 }
 
 /**
- * Scalar columns in reading order: the label, money, dates, the rest, yes/no flags, ids. A narrow terminal drops
+ * Scalar columns in reading order: the label, money and percentages, dates, the rest, timestamps, yes/no flags,
+ * ids. A narrow terminal drops
  * columns from the end, so ids go first. Empty columns are dropped, `name` beside `displayName`
  * (which contains it), and `currency` when every row uses the result's currency.
  */
@@ -151,9 +201,10 @@ function tableColumns(rows: JsonObject[], view: View): string[] {
 		(key === "currency" && rows.every((row) => row.currency === view.currency));
 
 	const kept = columns.flatMap((key) => (redundant(key) ? [] : [key]));
+	const labels = labelColumns(kept, rows);
 
 	return kept
-		.map((key, order) => ({ key, order, rank: columnRank(key, rows) }))
+		.map((key, order) => ({ key, order, rank: columnRank(key, rows, labels, view) }))
 		.sort((a, b) => a.rank - b.rank || a.order - b.order)
 		.map(({ key }) => key);
 }
