@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { secrets } from "bun";
 import { type CliDeps, run } from "./cli";
 import { macosTokenStore, runSecurity } from "./keychain";
+import { fileLock, openBrowser, startCallback } from "./system";
 import { caBundle } from "./trust";
 
 const KEYCHAIN = { service: "finance.betteroff.cli", name: "api-token" };
@@ -82,6 +83,10 @@ const deps: CliDeps = {
 	readSecret,
 	now: Date.now,
 	keychainTimeoutMs: 5000,
+	startCallback,
+	openBrowser,
+	withLock: fileLock(cacheDir, join(cacheDir, "token.lock")),
+	signInTimeoutMs: 5 * 60 * 1000,
 };
 
 process.exitCode = await run(process.argv.slice(2), deps);

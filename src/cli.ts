@@ -1,6 +1,24 @@
 import type { JsonValue } from "./json";
 import * as z from "zod";
 import { parseToolArgs, UsageError } from "./args";
+import {
+	accessToken,
+	decodeCredential,
+	encodeSession,
+	type SessionStore,
+	sessionFromTokens,
+} from "./credentials";
+import {
+	authorizationCode,
+	authorizationUrl,
+	codeChallenge,
+	discover,
+	exchangeCode,
+	OAuthError,
+	randomToken,
+	revokeToken,
+	SignInExpiredError,
+} from "./oauth";
 import { ansiStyle, plainStyle, renderPretty, type Style } from "./render";
 import { findTool, type Tool, toolsFromSpec, toolsSpecSchema } from "./spec";
 import { safeJson, safeText } from "./text";
@@ -42,6 +60,21 @@ export type CliDeps = {
 	now: () => number;
 	/** How long a keychain call may take before the CLI gives up on it. */
 	keychainTimeoutMs: number;
+	/** Listens on a loopback port for the browser's redirect after sign-in. */
+	startCallback: () => Promise<CallbackServer>;
+	/** Opens a URL in the user's browser; false when it could not. */
+	openBrowser: (url: string) => Promise<boolean>;
+	/** Runs `action` while no other CLI process holds the token lock. */
+	withLock: <T>(action: () => Promise<T>) => Promise<T>;
+	/** How long to wait for the user to finish signing in. */
+	signInTimeoutMs: number;
+};
+
+export type CallbackServer = {
+	redirectUri: string;
+	/** The query of the first request to the callback path. */
+	result: Promise<URLSearchParams>;
+	close: () => void;
 };
 
 const cachedSpecSchema = z.object({
@@ -148,17 +181,40 @@ async function keychain<T>(deps: CliDeps, action: () => Promise<T>): Promise<T> 
 	}
 }
 
-async function resolveToken(deps: CliDeps): Promise<{ token: string; source: string } | null> {
+function sessionStore(deps: CliDeps): SessionStore {
+	return {
+		read: () => keychain(deps, () => deps.tokens.get()),
+		write: (value) => keychain(deps, () => deps.tokens.set(value)),
+		withLock: deps.withLock,
+		fetch: deps.fetch,
+		now: deps.now,
+	};
+}
+
+type Credential = { token: string; source: string; renew: (() => Promise<string | null>) | undefined };
+
+async function resolveToken(deps: CliDeps): Promise<Credential | null> {
 	const fromEnv = deps.env.BETTEROFF_API_TOKEN?.trim();
 
 	if (fromEnv && !TOKEN_TEXT.test(fromEnv))
 		throw new UsageError("BETTEROFF_API_TOKEN has spaces or unprintable characters.");
 
-	if (fromEnv) return { token: fromEnv, source: "BETTEROFF_API_TOKEN" };
+	if (fromEnv) return { token: fromEnv, source: "BETTEROFF_API_TOKEN", renew: undefined };
 
 	const stored = await keychain(deps, () => deps.tokens.get());
+	const credential = stored ? decodeCredential(stored) : null;
 
-	return stored ? { token: stored, source: "system keychain" } : null;
+	if (!credential) return null;
+
+	if (credential.kind === "token")
+		return { token: credential.token, source: "system keychain", renew: undefined };
+
+	const store = sessionStore(deps);
+	const token = await accessToken(store, false);
+
+	if (!token) throw new SignInExpiredError("Your BetterOff sign-in has expired.");
+
+	return { token, source: "browser sign-in", renew: () => accessToken(store, true) };
 }
 
 function errorMessage(status: number, body: JsonValue, retryAfter: string | null): string {
@@ -222,8 +278,8 @@ function usage(tools: Tool[], style: Style): string {
 		...tools.map((tool) => `  ${tool.command.padEnd(width)}  ${tool.summary}`),
 		"",
 		style.bold("Account"),
-		`  ${"login".padEnd(width)}  Save a personal API token to the system keychain`,
-		`  ${"logout".padEnd(width)}  Remove the saved token`,
+		`  ${"login".padEnd(width)}  Sign in with your browser (--token to paste an API token)`,
+		`  ${"logout".padEnd(width)}  Sign out and end the sign-in at BetterOff`,
 		`  ${"status".padEnd(width)}  Show which token and API this CLI uses`,
 		"",
 		style.bold("Flags"),
@@ -306,7 +362,7 @@ function toolUsage(tool: Tool, width: number, style: Style): string {
 	return `${lines.join("\n")}\n`;
 }
 
-async function login(deps: CliDeps): Promise<number> {
+async function tokenLogin(deps: CliDeps): Promise<number> {
 	deps.stderr(
 		[
 			`Create a personal API token at ${TOKEN_SETTINGS_URL}`,
@@ -351,14 +407,122 @@ async function login(deps: CliDeps): Promise<number> {
 	return 0;
 }
 
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+
+	return Promise.race([
+		promise,
+		new Promise<never>((_, reject) => {
+			timer = setTimeout(() => reject(new OAuthError(message)), ms);
+		}),
+	]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * OAuth authorization code flow with PKCE on a loopback redirect (RFC 8252). The browser signs in
+ * and shows the consent page; BetterOff redirects back to this machine with a one-time code, and
+ * the CLI trades it for tokens. The CLI never sees the password, and the user can revoke the
+ * connection in BetterOff's settings.
+ */
+async function browserLogin(deps: CliDeps): Promise<number> {
+	const endpoints = await discover(deps.fetch, apiUrl(deps));
+	const verifier = randomToken();
+	const state = randomToken();
+	const server = await deps.startCallback();
+
+	try {
+		const url = authorizationUrl(endpoints, {
+			redirectUri: server.redirectUri,
+			state,
+			challenge: await codeChallenge(verifier),
+		});
+
+		deps.stderr(
+			[
+				"Opening your browser to sign in to BetterOff.",
+				"If it does not open, paste this into a browser on this computer:",
+				"",
+				`  ${url}`,
+				"",
+				"On a machine without a browser, such as over SSH, run: betteroff login --token",
+				"",
+			].join("\n"),
+		);
+		await deps.openBrowser(url);
+
+		const params = await withTimeout(
+			server.result,
+			deps.signInTimeoutMs,
+			"Sign-in timed out. Run: betteroff login",
+		);
+		const code = authorizationCode(params, { state, issuer: endpoints.issuer });
+		const tokens = await exchangeCode(deps.fetch, endpoints, {
+			code,
+			verifier,
+			redirectUri: server.redirectUri,
+		});
+		const session = sessionFromTokens(tokens, {
+			tokenEndpoint: endpoints.tokenEndpoint,
+			revocationEndpoint: endpoints.revocationEndpoint,
+			resource: endpoints.resource,
+			now: deps.now(),
+		});
+
+		await keychain(deps, () => deps.tokens.set(encodeSession(session)));
+		deps.stderr(
+			session.refreshToken
+				? "Signed in. The CLI renews access on its own; the sign-in lasts up to 30 days.\n"
+				: "Signed in for this session only; you did not allow offline access.\n",
+		);
+
+		return 0;
+	} finally {
+		server.close();
+	}
+}
+
+async function login(deps: CliDeps, flags: string[]): Promise<number> {
+	if (flags.includes("--token")) return await tokenLogin(deps);
+
+	if (flags.length > 0) throw new UsageError("Usage: betteroff login [--token]");
+
+	return await browserLogin(deps);
+}
+
+/** Revokes a browser sign-in at BetterOff before forgetting it, so the refresh token stops working. */
+async function logout(deps: CliDeps): Promise<number> {
+	const stored = await keychain(deps, () => deps.tokens.get());
+	const credential = stored ? decodeCredential(stored) : null;
+
+	if (credential?.kind === "oauth" && credential.session.refreshToken) {
+		const { refreshToken, revocationEndpoint } = credential.session;
+		const revoked = revocationEndpoint
+			? await revokeToken(deps.fetch, { revocationEndpoint, refreshToken }).catch(() => false)
+			: false;
+
+		if (!revoked)
+			deps.stderr(
+				"Could not reach BetterOff to end the sign-in. Remove it under Settings > Agent connections.\n",
+			);
+	}
+
+	const removed = await keychain(deps, () => deps.tokens.delete());
+
+	deps.stderr(removed ? "Signed out.\n" : "Not signed in.\n");
+
+	return 0;
+}
+
 async function status(deps: CliDeps): Promise<number> {
 	const resolved = await resolveToken(deps);
 
 	const lines = [
 		`API      ${apiUrl(deps)}`,
-		resolved
-			? `Token    ${resolved.token.slice(0, DISPLAY_PREFIX_LENGTH)}… from ${resolved.source}`
-			: "Token    none. Run: betteroff login",
+		!resolved
+			? "Token    none. Run: betteroff login"
+			: resolved.renew
+				? "Token    browser sign-in, renewed automatically"
+				: `Token    ${resolved.token.slice(0, DISPLAY_PREFIX_LENGTH)}… from ${resolved.source}`,
 		`Version  ${VERSION}`,
 	];
 
@@ -381,17 +545,11 @@ export async function run(argv: string[], deps: CliDeps): Promise<number> {
 			return 0;
 		}
 
-		if (command === "login") return await login(deps);
+		if (command === "login") return await login(deps, flags);
 
 		if (command === "status") return await status(deps);
 
-		if (command === "logout") {
-			const removed = await keychain(deps, () => deps.tokens.delete());
-
-			deps.stderr(removed ? "Removed the saved token.\n" : "No saved token.\n");
-
-			return 0;
-		}
+		if (command === "logout") return await logout(deps);
 
 		const { tools } = await loadTools(deps);
 
@@ -416,7 +574,14 @@ export async function run(argv: string[], deps: CliDeps): Promise<number> {
 
 		if (!resolved) throw new ApiError("Not signed in. Run: betteroff login");
 
-		const result = await callTool(deps, resolved.token, tool, args);
+		let result = await callTool(deps, resolved.token, tool, args);
+
+		// A browser sign-in's access token can be revoked or expire early; renew it once and retry.
+		if (result.status === 401 && resolved.renew) {
+			const renewed = await resolved.renew();
+
+			if (renewed) result = await callTool(deps, renewed, tool, args);
+		}
 
 		if (!result.ok) throw new ApiError(errorMessage(result.status, result.body, result.retryAfter));
 
@@ -433,6 +598,18 @@ export async function run(argv: string[], deps: CliDeps): Promise<number> {
 
 		if (error instanceof ApiError) {
 			deps.stderr(`${error.message}\n`);
+
+			return 1;
+		}
+
+		if (error instanceof SignInExpiredError) {
+			deps.stderr(`${safeText(error.message)} Run: betteroff login\n`);
+
+			return 1;
+		}
+
+		if (error instanceof OAuthError) {
+			deps.stderr(`${safeText(error.message)}\n`);
 
 			return 1;
 		}

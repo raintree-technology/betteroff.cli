@@ -154,6 +154,12 @@ export function fakeDeps(respond: Responder, overrides: Partial<CliDeps> = {}) {
 		readSecret: async () => TOKEN,
 		now: () => 1_000_000,
 		keychainTimeoutMs: 50,
+		startCallback: async () => {
+			throw new Error("startCallback is not set up in this test");
+		},
+		openBrowser: async () => true,
+		withLock: (action) => action(),
+		signInTimeoutMs: 1000,
 		...overrides,
 	};
 
