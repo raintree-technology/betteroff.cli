@@ -144,7 +144,7 @@ Only tools the spec marks read-only become commands. Tools that propose changes 
 - **Pinned trust.** Requests trust a bundled Mozilla root certificate snapshot (`src/ca.pem`) instead of Bun's built-in list, which still includes roots Mozilla has distrusted.
 - **Safe terminal output.** Merchant names and other text come from banks and other third parties. The CLI replaces control characters and bidirectional overrides before printing, so that text cannot move the cursor, rewrite the screen, set the clipboard, or reorder what you see. `--json` output escapes the same characters and still parses to the same value.
 - **Supply chain.** Dependencies are pinned to exact versions with a frozen lockfile, and new releases wait 3 days before install. CI actions are pinned to commit SHAs with read-only tokens. CodeQL scans the code and workflows. OSV-Scanner checks every version in `bun.lock` against known vulnerabilities on each pull request and daily. Pull requests also fail on vulnerable new Actions, and Socket reviews dependency changes.
-- **Verifiable releases.** Release binaries are built by a GitHub Actions workflow from a version tag, with signed build provenance and SHA-256 checksums. Releases are immutable, so a published binary cannot be replaced.
+- **Verifiable releases.** Release binaries are built by a GitHub Actions workflow from a version tag, with signed build provenance and SHA-256 checksums. From v0.1.2 the macOS binaries are signed with Developer ID and notarized by Apple. Releases are immutable, so a published binary cannot be replaced.
 
 Report a vulnerability to [security@betteroff.finance](mailto:security@betteroff.finance), not in a public issue. See [SECURITY.md](SECURITY.md).
 
