@@ -24,7 +24,7 @@ import { ansiStyle, plainStyle, renderPretty, type Style } from "./render";
 import { findTool, type Tool, toolsFromSpec, toolsSpecSchema } from "./spec";
 import { safeJson, safeText } from "./text";
 
-export const VERSION = "0.1.1";
+export const VERSION = "0.1.2";
 
 const DEFAULT_API_URL = "https://api.betteroff.finance";
 

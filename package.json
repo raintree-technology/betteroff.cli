@@ -1,6 +1,6 @@
 {
 	"name": "betteroff-cli",
-	"version": "0.1.1",
+	"version": "0.1.2",
 	"description": "Read your BetterOff household from the terminal.",
 	"private": true,
 	"type": "module",
