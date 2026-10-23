@@ -24,6 +24,7 @@ function authServer(options: { serverMetadata?: Record<string, string> } = {}) {
 		revoked: [] as string[],
 		toolTokens: [] as string[],
 		rejectNextToolCall: false,
+		revokeUnreachable: false,
 	};
 
 	const respond = (url: string, init: RequestInit | undefined): Response => {
@@ -67,7 +68,15 @@ function authServer(options: { serverMetadata?: Record<string, string> } = {}) {
 		}
 
 		if (url === REVOKE_ENDPOINT) {
-			world.revoked.push(new URLSearchParams(String(init?.body)).get("token") ?? "");
+			if (world.revokeUnreachable) throw new TypeError("fetch failed");
+
+			const token = new URLSearchParams(String(init?.body)).get("token") ?? "";
+
+			// Like BetterOff: a token it no longer knows is a 400, not RFC 7009's 200.
+			if (token !== world.refreshToken)
+				return Response.json({ error: "invalid_request", error_description: "token not found" }, { status: 400 });
+
+			world.revoked.push(token);
 
 			return new Response(null, { status: 200 });
 		}
@@ -323,6 +332,27 @@ describe("signed-in requests", () => {
 
 		expect(await run(["logout"], harness.deps)).toBe(0);
 		expect(world.revoked).toEqual(["rt-1"]);
+		expect(harness.stderr()).toContain("Ended the sign-in at BetterOff.");
+		expect(await harness.deps.tokens.get()).toBeNull();
+	});
+
+	test("logout says when the sign-in had already ended", async () => {
+		const { world, harness } = await signedIn(10_000_000);
+
+		world.refreshToken = "rt-elsewhere";
+
+		expect(await run(["logout"], harness.deps)).toBe(0);
+		expect(harness.stderr()).toContain("had already ended");
+		expect(await harness.deps.tokens.get()).toBeNull();
+	});
+
+	test("logout still forgets the sign-in when BetterOff cannot be reached, and says how to end it", async () => {
+		const { world, harness } = await signedIn(10_000_000);
+
+		world.revokeUnreachable = true;
+
+		expect(await run(["logout"], harness.deps)).toBe(0);
+		expect(harness.stderr()).toContain("Settings > Agent connections");
 		expect(await harness.deps.tokens.get()).toBeNull();
 	});
 

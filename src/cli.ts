@@ -539,13 +539,19 @@ async function logout(deps: CliDeps): Promise<number> {
 
 	if (credential?.kind === "oauth" && credential.session.refreshToken) {
 		const { refreshToken, revocationEndpoint } = credential.session;
-		const revoked = revocationEndpoint
-			? await revokeToken(deps.fetch, { revocationEndpoint, refreshToken }).catch(() => false)
-			: false;
+		const outcome = revocationEndpoint
+			? await revokeToken(deps.fetch, { revocationEndpoint, refreshToken }).catch(
+					(): "failed" => "failed",
+				)
+			: "failed";
 
-		if (!revoked)
+		if (outcome === "revoked") deps.stderr("Ended the sign-in at BetterOff.\n");
+
+		if (outcome === "already-ended") deps.stderr("The sign-in had already ended at BetterOff.\n");
+
+		if (outcome === "failed")
 			deps.stderr(
-				"Could not reach BetterOff to end the sign-in. Remove it under Settings > Agent connections.\n",
+				"Could not end the sign-in at BetterOff. Remove it under Settings > Agent connections.\n",
 			);
 	}
 

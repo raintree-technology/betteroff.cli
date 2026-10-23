@@ -290,11 +290,14 @@ export function refreshTokens(
 	});
 }
 
-/** RFC 7009. Revoking the refresh token ends the whole grant. Returns whether the server agreed. */
+/**
+ * RFC 7009. Revoking the refresh token ends the whole grant. BetterOff answers 400 `invalid_request`
+ * for a token it no longer knows, which means the sign-in had already ended.
+ */
 export async function revokeToken(
 	fetch: OAuthFetch,
 	request: { revocationEndpoint: string; refreshToken: string },
-): Promise<boolean> {
+): Promise<"revoked" | "already-ended" | "failed"> {
 	const response = await fetch(request.revocationEndpoint, {
 		method: "POST",
 		headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -306,5 +309,12 @@ export async function revokeToken(
 		redirect: "error",
 	});
 
-	return response.ok;
+	if (response.ok) return "revoked";
+
+	const failure = tokenErrorSchema.safeParse(await response.json().catch(() => null)).data;
+
+	return response.status === 400 &&
+		(failure?.error === "invalid_request" || failure?.error === "invalid_grant")
+		? "already-ended"
+		: "failed";
 }
