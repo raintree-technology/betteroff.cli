@@ -210,6 +210,25 @@ export function authorizationCode(
 	return code;
 }
 
+/**
+ * The address the browser was sent to, pasted by hand. Over SSH the browser runs on another
+ * computer, so its redirect to 127.0.0.1 cannot reach the CLI; the user copies the address from the
+ * error page instead. It must be this CLI's own redirect URI; `state` and PKCE are checked as usual.
+ */
+export function pastedRedirect(text: string, redirectUri: string): URLSearchParams | null {
+	let url: URL;
+
+	try {
+		url = new URL(text.trim());
+	} catch {
+		return null;
+	}
+
+	const expected = new URL(redirectUri);
+
+	return url.origin === expected.origin && url.pathname === expected.pathname ? url.searchParams : null;
+}
+
 /** Thrown when the server refuses a refresh token, so the user has to sign in again. */
 export class SignInExpiredError extends OAuthError {}
 

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { run } from "../cli";
 import { decodeCredential, encodeSession, type OAuthSession } from "../credentials";
-import { CLIENT_ID, codeChallenge, discover, SCOPES } from "../oauth";
+import { CLIENT_ID, codeChallenge, discover, pastedRedirect, SCOPES } from "../oauth";
 import { fakeDeps, fixtureSpec } from "./fixtures";
 
 const API = "https://api.betteroff.finance";
@@ -188,6 +188,45 @@ describe("browser sign-in", () => {
 		expect(await harness.deps.tokens.get()).toBeNull();
 	});
 
+	test("over SSH, prints the link instead of opening a browser and accepts the pasted address", async () => {
+		const server = authServer();
+		const harness = fakeDeps(server.respond, { env: { SSH_CONNECTION: "100.94.94.108 51234 100.1.1.1 22" } });
+		const opened: string[] = [];
+		let pastes = 0;
+
+		harness.deps.startCallback = async () => ({
+			redirectUri: "http://127.0.0.1:5555/callback",
+			result: new Promise(() => {}),
+			close: () => {},
+		});
+		harness.deps.openBrowser = async (url) => {
+			opened.push(url);
+
+			return true;
+		};
+		harness.deps.readLine = async () => {
+			const link = /https:\/\/\S+\/oauth2\/authorize\S+/.exec(harness.stderr())?.[0] ?? "";
+			const state = new URL(link).searchParams.get("state") ?? "";
+
+			server.world.challenge = new URL(link).searchParams.get("code_challenge") ?? "";
+			pastes++;
+
+			// First a paste from the wrong port, then the real address with stray spaces.
+			return pastes === 1
+				? "http://127.0.0.1:9999/callback?code=x"
+				: `  http://127.0.0.1:5555/callback?code=code-1&state=${state}&iss=${encodeURIComponent(ISSUER)}  `;
+		};
+
+		expect(await run(["login"], harness.deps)).toBe(0);
+		expect(opened).toEqual([]);
+		expect(harness.stderr()).toContain("You are connected over SSH");
+		expect(harness.stderr()).toContain("That is not the address BetterOff sent you to.");
+		expect(await codeChallenge(server.world.tokenForms[0]?.get("code_verifier") ?? "")).toBe(
+			server.world.challenge,
+		);
+		expect(storedSession(await harness.deps.tokens.get()).refreshToken).toBe("rt-2");
+	});
+
 	test("gives up when the browser never comes back", async () => {
 		const { harness } = signIn(() => ({}));
 
@@ -293,6 +332,18 @@ describe("signed-in requests", () => {
 		expect(await run(["status"], harness.deps)).toBe(0);
 		expect(harness.stdout()).toContain("browser sign-in");
 		expect(harness.stdout()).not.toContain("at-1");
+	});
+});
+
+describe("pastedRedirect", () => {
+	test("accepts only this CLI's own redirect address", () => {
+		const redirect = "http://127.0.0.1:5555/callback";
+
+		expect(pastedRedirect(` ${redirect}?code=a&state=b `, redirect)?.get("code")).toBe("a");
+		expect(pastedRedirect("http://127.0.0.1:6666/callback?code=a", redirect)).toBeNull();
+		expect(pastedRedirect("http://127.0.0.1:5555/other?code=a", redirect)).toBeNull();
+		expect(pastedRedirect("https://evil.example/callback?code=a", redirect)).toBeNull();
+		expect(pastedRedirect("not a url", redirect)).toBeNull();
 	});
 });
 

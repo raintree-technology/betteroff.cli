@@ -157,6 +157,7 @@ export function fakeDeps(respond: Responder, overrides: Partial<CliDeps> = {}) {
 		startCallback: async () => {
 			throw new Error("startCallback is not set up in this test");
 		},
+		readLine: async () => null,
 		openBrowser: async () => true,
 		withLock: (action) => action(),
 		signInTimeoutMs: 1000,

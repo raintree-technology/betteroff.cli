@@ -15,6 +15,7 @@ import {
 	discover,
 	exchangeCode,
 	OAuthError,
+	pastedRedirect,
 	randomToken,
 	revokeToken,
 	SignInExpiredError,
@@ -62,6 +63,8 @@ export type CliDeps = {
 	keychainTimeoutMs: number;
 	/** Listens on a loopback port for the browser's redirect after sign-in. */
 	startCallback: () => Promise<CallbackServer>;
+	/** Reads a line typed or pasted into the terminal; null when there is no terminal or it was aborted. */
+	readLine: (prompt: string, signal: AbortSignal) => Promise<string | null>;
 	/** Opens a URL in the user's browser; false when it could not. */
 	openBrowser: (url: string) => Promise<boolean>;
 	/** Runs `action` while no other CLI process holds the token lock. */
@@ -418,6 +421,42 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
 	]).finally(() => clearTimeout(timer));
 }
 
+const NEVER = new Promise<never>(() => {});
+
+/**
+ * Waits for the browser's redirect to reach the loopback server, or for the user to paste the
+ * address the browser was sent to, whichever comes first.
+ */
+async function waitForRedirect(deps: CliDeps, server: CallbackServer): Promise<URLSearchParams> {
+	const controller = new AbortController();
+	const pasted = (async (): Promise<URLSearchParams> => {
+		while (!controller.signal.aborted) {
+			const line = await deps.readLine("Paste the address here: ", controller.signal);
+
+			if (line === null) return await NEVER;
+
+			const params = pastedRedirect(line, server.redirectUri);
+
+			if (params) return params;
+
+			if (line.trim())
+				deps.stderr(`That is not the address BetterOff sent you to. It starts with ${server.redirectUri}\n`);
+		}
+
+		return await NEVER;
+	})();
+
+	try {
+		return await withTimeout(
+			Promise.race([server.result, pasted]),
+			deps.signInTimeoutMs,
+			"Sign-in timed out. Run: betteroff login",
+		);
+	} finally {
+		controller.abort();
+	}
+}
+
 /**
  * OAuth authorization code flow with PKCE on a loopback redirect (RFC 8252). The browser signs in
  * and shows the consent page; BetterOff redirects back to this machine with a one-time code, and
@@ -437,24 +476,28 @@ async function browserLogin(deps: CliDeps): Promise<number> {
 			challenge: await codeChallenge(verifier),
 		});
 
+		// Over SSH the browser is on the user's own computer, not this one.
+		const remote = Boolean(deps.env.SSH_CONNECTION || deps.env.SSH_TTY);
+
 		deps.stderr(
 			[
-				"Opening your browser to sign in to BetterOff.",
-				"If it does not open, paste this into a browser on this computer:",
+				remote
+					? "You are connected over SSH. Open this link in a browser on your own computer:"
+					: "Opening your browser to sign in to BetterOff. If it does not open, use this link:",
 				"",
 				`  ${url}`,
 				"",
-				"On a machine without a browser, such as over SSH, run: betteroff login --token",
+				remote
+					? "After you approve, the browser shows a page that cannot connect. That is expected:"
+					: "If the browser shows a page that cannot connect after you approve,",
+				"copy the full address from its address bar and paste it here.",
 				"",
 			].join("\n"),
 		);
-		await deps.openBrowser(url);
 
-		const params = await withTimeout(
-			server.result,
-			deps.signInTimeoutMs,
-			"Sign-in timed out. Run: betteroff login",
-		);
+		if (!remote) await deps.openBrowser(url);
+
+		const params = await waitForRedirect(deps, server);
 		const code = authorizationCode(params, { state, issuer: endpoints.issuer });
 		const tokens = await exchangeCode(deps.fetch, endpoints, {
 			code,

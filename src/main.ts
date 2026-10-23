@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { chmod, mkdir, writeFile } from "node:fs/promises";
+import { createInterface } from "node:readline/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { secrets } from "bun";
@@ -51,6 +52,21 @@ async function readSecret(prompt: string): Promise<string> {
 	});
 }
 
+/** A visible line from the terminal, for pasting the browser's address; null without a terminal. */
+async function readLine(prompt: string, signal: AbortSignal): Promise<string | null> {
+	if (!process.stdin.isTTY) return null;
+
+	const lines = createInterface({ input: process.stdin, output: process.stderr });
+
+	try {
+		return await lines.question(prompt, { signal });
+	} catch {
+		return null;
+	} finally {
+		lines.close();
+	}
+}
+
 const deps: CliDeps = {
 	env: process.env,
 	stdout: (text) => process.stdout.write(text),
@@ -84,6 +100,7 @@ const deps: CliDeps = {
 	now: Date.now,
 	keychainTimeoutMs: 5000,
 	startCallback,
+	readLine,
 	openBrowser,
 	withLock: fileLock(cacheDir, join(cacheDir, "token.lock")),
 	signInTimeoutMs: 5 * 60 * 1000,
