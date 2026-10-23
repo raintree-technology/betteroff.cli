@@ -1,0 +1,33 @@
+name: OSV-Scanner
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "41 6 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: osv-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # GitHub's dependency graph does not read bun.lock, so Dependabot alerts and dependency review
+  # miss the npm packages. OSV-Scanner checks every locked version against the OSV database and
+  # fails on any known vulnerability. The daily run catches advisories published after a merge.
+  osv-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: google/osv-scanner-action/osv-scanner-action@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
+        with:
+          scan-args: |-
+            --lockfile=bun.lock
