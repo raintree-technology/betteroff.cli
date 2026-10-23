@@ -5,6 +5,9 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  # Builds and checks the binaries on changes to the release files, without publishing.
+  pull_request:
+    paths: [".github/workflows/release.yml", "install.sh", "package.json", "bun.lock"]
 
 permissions: {}
 
@@ -30,6 +33,7 @@ jobs:
       - run: bun run typecheck
       - run: bun run test
       - name: Check the tag matches the CLI version
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
           TAG: ${{ github.ref_name }}
         run: |
@@ -70,6 +74,7 @@ jobs:
           chmod +x betteroff-linux-x64 && ./betteroff-linux-x64 --version
 
   publish:
+    if: startsWith(github.ref, 'refs/tags/v')
     needs: [build, check-linux]
     runs-on: ubuntu-latest
     timeout-minutes: 10
