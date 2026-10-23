@@ -146,4 +146,83 @@ describe("run", () => {
 		expect(await run(["accounts"], harness.deps)).toBe(1);
 		expect(harness.stderr()).toContain("Could not load the BetterOff tool list");
 	});
+
+	test.each([
+		["http://api.betteroff.finance", "must use https://"],
+		["https://api.betteroff.finance/v1", "origin only"],
+		["https://user:pass@api.betteroff.finance", "origin only"],
+		["not a url", "not a valid URL"],
+	])("refuses BETTEROFF_API_URL=%p before sending anything", async (url, message) => {
+		const harness = fakeDeps(
+			api(() => Response.json(accounts)),
+			{ env: { BETTEROFF_API_TOKEN: TOKEN, BETTEROFF_API_URL: url } },
+		);
+
+		expect(await run(["accounts"], harness.deps)).toBe(2);
+		expect(harness.stderr()).toContain(message);
+		expect(harness.requests).toEqual([]);
+	});
+
+	test("allows plain http only on this machine", async () => {
+		const harness = fakeDeps(
+			api(() => Response.json(accounts)),
+			{ env: { BETTEROFF_API_TOKEN: TOKEN, BETTEROFF_API_URL: "http://localhost:8787/" } },
+		);
+
+		expect(await run(["accounts"], harness.deps)).toBe(0);
+		expect(harness.requests.at(-1)?.url).toBe("http://localhost:8787/v1/tools/betteroff_list_accounts");
+	});
+
+	test("never follows a redirect", async () => {
+		const harness = fakeDeps(
+			api(() => Response.json(accounts)),
+			{ env: { BETTEROFF_API_TOKEN: TOKEN } },
+		);
+
+		await run(["accounts"], harness.deps);
+
+		expect(harness.requests.map((request) => request.init?.redirect)).toEqual(["error", "error"]);
+	});
+
+	test("refuses a token with spaces or control characters", async () => {
+		const harness = fakeDeps(
+			api(() => Response.json(accounts)),
+			{ env: { BETTEROFF_API_TOKEN: `${TOKEN}\r\nx-evil: 1` } },
+		);
+
+		expect(await run(["accounts"], harness.deps)).toBe(2);
+		expect(harness.requests.some((request) => request.url.includes("/v1/tools/"))).toBe(false);
+	});
+
+	test("gives up on a keychain that never answers", async () => {
+		const harness = fakeDeps(api(() => Response.json(accounts)));
+		const hang = () => new Promise<never>(() => {});
+
+		harness.deps.tokens = { get: hang, set: hang, delete: hang };
+
+		expect(await run(["accounts"], harness.deps)).toBe(1);
+		expect(harness.stderr()).toContain("no answer after 0.05 seconds");
+	});
+
+	test("prints no terminal escapes from API text", async () => {
+		const evil = [{ id: "a", displayName: "Shop\u001b]52;c;cGF5bG9hZA==\u0007", currency: "USD" }];
+		const tty = fakeDeps(
+			api(() => Response.json(evil)),
+			{ env: { BETTEROFF_API_TOKEN: TOKEN, NO_COLOR: "1" }, stdoutIsTTY: true },
+		);
+		const piped = fakeDeps(api(() => Response.json(evil)), { env: { BETTEROFF_API_TOKEN: TOKEN } });
+		const failing = fakeDeps(
+			api(() => Response.json({ message: "Denied\u001b[2J", code: "ACCESS_DENIED" }, { status: 403 })),
+			{ env: { BETTEROFF_API_TOKEN: TOKEN } },
+		);
+
+		await run(["accounts"], tty.deps);
+		await run(["accounts"], piped.deps);
+		await run(["accounts"], failing.deps);
+
+		for (const output of [tty.stdout(), piped.stdout(), failing.stderr()]) {
+			expect(output).not.toContain("\u001b");
+			expect(output).not.toContain("\u0007");
+		}
+	});
 });

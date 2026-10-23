@@ -1,5 +1,6 @@
 import type { JsonObject, JsonValue } from "./json";
 import * as z from "zod";
+import { safeText } from "./text";
 
 type JsonSchema = {
 	type?: string | string[] | undefined;
@@ -91,6 +92,12 @@ const CLI_DEFAULTS = new Map<string, JsonObject>([
 	["betteroff_search_markets", { limit: 10, offset: 0 }],
 ]);
 
+/** Tool names become URL paths and command names; anything else in the spec is ignored. */
+const TOOL_NAME = /^betteroff_[a-z][a-z0-9_]*$/;
+
+/** Input names become flag names and JSON keys. */
+const PROPERTY_NAME = /^[A-Za-z][A-Za-z0-9]*$/;
+
 const VERB_PREFIX = /^(?:get|list|search)_/;
 
 function kebab(text: string): string {
@@ -102,7 +109,12 @@ function schemaTypes(schema: JsonSchema): string[] {
 }
 
 function stringChoices(schema: JsonSchema | undefined): string[] {
-	return (schema?.enum ?? []).flatMap((value) => z.string().safeParse(value).data ?? []);
+	return (schema?.enum ?? []).flatMap((value) => {
+		const text = z.string().safeParse(value).data;
+
+		// An enum value with control characters would print as something other than what it sends.
+		return text !== undefined && safeText(text) === text ? [text] : [];
+	});
 }
 
 /** Collapse `T | null` unions to `T`; anything with more than one real type is passed as JSON. */
@@ -158,6 +170,8 @@ export function toolsFromSpec(spec: ToolsSpec): Tool[] {
 
 		if (!path.startsWith("/v1/tools/") || !operation) continue;
 
+		if (!TOOL_NAME.test(operation.operationId)) continue;
+
 		if (!operation["x-mcp-annotations"].readOnlyHint || WRITE_TOOL.test(operation.operationId))
 			continue;
 		operations.push(operation);
@@ -182,6 +196,8 @@ export function toolsFromSpec(spec: ToolsSpec): Tool[] {
 		const flags: Flag[] = [];
 
 		for (const [property, schema] of Object.entries(body?.properties ?? {})) {
+			if (!PROPERTY_NAME.test(property)) continue;
+
 			const { kind, choices } = flagKind(schema);
 			const nullable = isNullable(schema);
 			const mustSend = required.has(property) && schema.default === undefined;
@@ -192,7 +208,7 @@ export function toolsFromSpec(spec: ToolsSpec): Tool[] {
 				flag: kebab(property),
 				kind,
 				choices,
-				description: schema.description ?? "",
+				description: safeText(schema.description ?? ""),
 				required: mustSend && !nullable && cliDefault === undefined,
 				nullWhenOmitted: mustSend && nullable,
 				cliDefault,
@@ -204,8 +220,8 @@ export function toolsFromSpec(spec: ToolsSpec): Tool[] {
 			name: operation.operationId,
 			command,
 			aliases: command === full ? [] : [full],
-			summary: operation.summary,
-			description: operation.description,
+			summary: safeText(operation.summary),
+			description: safeText(operation.description),
 			flags,
 		});
 	}

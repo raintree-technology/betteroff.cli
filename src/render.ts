@@ -1,4 +1,5 @@
 import type { JsonObject, JsonValue } from "./json";
+import { safeText } from "./text";
 import * as z from "zod";
 
 export type Style = { bold: (text: string) => string; dim: (text: string) => string };
@@ -75,7 +76,7 @@ function label(key: string): string {
 		.replaceAll("_", " ")
 		.toLowerCase();
 
-	return words.charAt(0).toUpperCase() + words.slice(1);
+	return safeText(words.charAt(0).toUpperCase() + words.slice(1));
 }
 
 function currencyOf(row: JsonObject, view: View): string | undefined {
@@ -126,7 +127,7 @@ function formatScalar(key: string, value: JsonValue, row: JsonObject, view: View
 
 	if (datetime) return `${datetime[1]} ${datetime[2]}`;
 
-	return text;
+	return safeText(text);
 }
 
 function truncate(text: string, width: number): string {
@@ -337,7 +338,7 @@ function envelopeFooter(envelope: z.infer<typeof envelopeSchema>, style: Style):
 
 	if (asOf) lines.push(`As of ${asOf[1]} ${asOf[2]} UTC`);
 
-	return lines.length > 0 ? ["", ...lines.map((line) => style.dim(line))] : [];
+	return lines.length > 0 ? ["", ...lines.map((line) => style.dim(safeText(line)))] : [];
 }
 
 /** A readable view of a tool result. `--json` prints the exact payload, envelope included. */

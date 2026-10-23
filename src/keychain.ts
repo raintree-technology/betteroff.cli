@@ -63,6 +63,8 @@ export const runSecurity: SecurityRunner = async (args, input) => {
 		stdin: input === undefined ? "ignore" : new TextEncoder().encode(input),
 		stdout: "pipe",
 		stderr: "pipe",
+		// The CLI stops waiting after 5 seconds; this stops the process too.
+		timeout: 5000,
 	});
 	const [stdout, stderr, code] = await Promise.all([
 		new Response(child.stdout).text(),

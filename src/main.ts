@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { mkdir } from "node:fs/promises";
+import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { secrets } from "bun";
@@ -72,12 +72,16 @@ const deps: CliDeps = {
 			return (await file.exists()) ? await file.text() : null;
 		},
 		write: async (text) => {
-			await mkdir(cacheDir, { recursive: true });
-			await Bun.write(specPath, text);
+			// Nothing secret is cached, but only this user should be able to change the command list.
+			await mkdir(cacheDir, { recursive: true, mode: 0o700 });
+			await chmod(cacheDir, 0o700);
+			await writeFile(specPath, text, { mode: 0o600 });
+			await chmod(specPath, 0o600);
 		},
 	},
 	readSecret,
 	now: Date.now,
+	keychainTimeoutMs: 5000,
 };
 
 process.exitCode = await run(process.argv.slice(2), deps);
