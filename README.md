@@ -48,19 +48,31 @@ The accounts above are made up.
 
 ## Install
 
-There are no release binaries yet. Run it from source with [Bun](https://bun.sh) 1.4.3 or later:
+On macOS or Linux:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/raintree-technology/betteroff.cli/main/install.sh | sh
+```
+
+The script downloads the binary for your system from the [latest release](https://github.com/raintree-technology/betteroff.cli/releases/latest) into `~/.local/bin` and refuses to install it unless it matches the release's `SHA256SUMS`. If the [GitHub CLI](https://cli.github.com) is installed and signed in, it also checks the binary's build provenance, which proves it was built by this repository's release workflow. Set `BETTEROFF_VERSION=0.1.0` for a specific version or `BETTEROFF_INSTALL_DIR` for another folder. Run the same command again to upgrade.
+
+On Windows, download `betteroff-windows-x64.exe` from the release and compare it with `SHA256SUMS`.
+
+To check any release binary yourself:
+
+```sh
+gh attestation verify betteroff-darwin-arm64 --repo raintree-technology/betteroff.cli
+```
+
+### From source
+
+With [Bun](https://bun.sh) 1.4.3 or later:
 
 ```sh
 git clone https://github.com/raintree-technology/betteroff.cli.git
 cd betteroff.cli
 bun install --frozen-lockfile
-bun src/main.ts --help
-```
-
-To build a single binary at `dist/betteroff`:
-
-```sh
-bun run build
+bun run build   # writes dist/betteroff
 ```
 
 ## Sign in
@@ -126,6 +138,7 @@ Only tools the spec marks read-only become commands. Tools that propose changes 
 - **Pinned trust.** Requests trust a bundled Mozilla root certificate snapshot (`src/ca.pem`) instead of Bun's built-in list, which still includes roots Mozilla has distrusted.
 - **Safe terminal output.** Merchant names and other text come from banks and other third parties. The CLI replaces control characters and bidirectional overrides before printing, so that text cannot move the cursor, rewrite the screen, set the clipboard, or reorder what you see. `--json` output escapes the same characters and still parses to the same value.
 - **Supply chain.** Dependencies are pinned to exact versions with a frozen lockfile, and new releases wait 3 days before install. CI actions are pinned to commit SHAs with read-only tokens. CodeQL scans the code and workflows. OSV-Scanner checks every version in `bun.lock` against known vulnerabilities on each pull request and daily. Pull requests also fail on vulnerable new Actions, and Socket reviews dependency changes.
+- **Verifiable releases.** Release binaries are built by a GitHub Actions workflow from a version tag, with signed build provenance and SHA-256 checksums. Releases are immutable, so a published binary cannot be replaced.
 
 Report a vulnerability to [security@betteroff.finance](mailto:security@betteroff.finance), not in a public issue. See [SECURITY.md](SECURITY.md).
 
