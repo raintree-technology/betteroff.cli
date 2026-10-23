@@ -29,7 +29,9 @@
 
 Read your [BetterOff](https://betteroff.finance) household from the terminal: accounts, net worth, transactions, spending, cash flow, recurring bills, portfolio, and debts.
 
-The CLI is read-only. It cannot move money, change records, or approve anything.
+The CLI is read-only. It cannot move money, change records, or approve anything. It runs on macOS, Linux, and Windows.
+
+[![CI](https://github.com/raintree-technology/betteroff.cli/actions/workflows/ci.yml/badge.svg)](https://github.com/raintree-technology/betteroff.cli/actions/workflows/ci.yml) [![Latest release](https://img.shields.io/github/v/release/raintree-technology/betteroff.cli)](https://github.com/raintree-technology/betteroff.cli/releases/latest)
 
 ```console
 $ betteroff accounts
@@ -46,6 +48,10 @@ As of 2026-10-22 16:00 UTC
 
 The accounts above are made up.
 
+## Before you start
+
+You need a [BetterOff](https://betteroff.finance) account with the accounts and wallets you want to read connected. Every member of the household must turn on Chat data access in BetterOff's Settings before any agent, this CLI included, can read household data.
+
 ## Install
 
 With [Homebrew](https://brew.sh) on macOS or Linux:
@@ -60,9 +66,9 @@ Or with the install script:
 curl -fsSL https://raw.githubusercontent.com/raintree-technology/betteroff.cli/main/install.sh | sh
 ```
 
-The script downloads the binary for your system from the [latest release](https://github.com/raintree-technology/betteroff.cli/releases/latest) into `~/.local/bin` and refuses to install it unless it matches the release's `SHA256SUMS`. If the [GitHub CLI](https://cli.github.com) is installed and signed in, it also checks the binary's build provenance, which proves it was built by this repository's release workflow. Set `BETTEROFF_VERSION=0.1.0` for a specific version or `BETTEROFF_INSTALL_DIR` for another folder. Run the same command again to upgrade (`brew upgrade betteroff` with Homebrew).
+The script downloads the binary for your system from the [latest release](https://github.com/raintree-technology/betteroff.cli/releases/latest) into `~/.local/bin` and refuses to install it unless it matches the release's `SHA256SUMS`. If the [GitHub CLI](https://cli.github.com) is installed and signed in, it also checks the binary's build provenance, which proves it was built by this repository's release workflow. Set `BETTEROFF_VERSION=0.1.2` for a specific version or `BETTEROFF_INSTALL_DIR` for another folder.
 
-On Windows, download `betteroff-windows-x64.exe` from the release and compare it with `SHA256SUMS`.
+You can also download a binary from the [release page](https://github.com/raintree-technology/betteroff.cli/releases/latest) and compare it with `SHA256SUMS`. The macOS binaries are signed with a Developer ID and notarized by Apple, so Gatekeeper accepts them. A browser download is not executable yet; run `chmod +x` on it first. On Windows, download `betteroff-windows-x64.exe`.
 
 To check any release binary yourself:
 
@@ -89,14 +95,16 @@ betteroff login
 
 Your browser opens BetterOff's sign-in and consent page. Approve the BetterOff CLI, and the browser hands a one-time code back to the CLI on `127.0.0.1`; the CLI never sees your password. The CLI can ask only for read access, and it renews its access on its own for up to 30 days. You can end it at any time under Settings > Agent connections in BetterOff, or with `betteroff logout`.
 
+**Over SSH,** the browser runs on your own computer, so its redirect to `127.0.0.1` cannot reach the CLI. `betteroff login` notices the SSH session and prints the link instead of opening a browser. Open it on your computer and approve; the browser then shows a page that cannot connect. Copy the full address from its address bar and paste it into the terminal. The address only works with the login that is waiting for it.
+
 The sign-in is saved in your system keychain: macOS Keychain (through Apple's `security` tool, so upgrades never prompt for access), libsecret on Linux, or Windows Credential Manager. `betteroff status` shows how the CLI is signed in.
 
-### Without a browser
+### With an API token
 
-On a machine without a browser, such as over SSH, or where the keychain is locked:
+For CI, or a machine whose keychain is locked:
 
 1. In BetterOff, open [Settings > API tokens](https://app.betteroff.finance/settings/api-tokens) and create a token with read scopes only.
-2. Run `betteroff login --token` and paste it, or set `BETTEROFF_API_TOKEN` (for CI).
+2. Set `BETTEROFF_API_TOKEN` to it, or run `betteroff login --token` and paste it to save it in the keychain.
 
 ## Use
 
@@ -126,7 +134,33 @@ Lists are paged. When there is more, the footer prints the `--cursor` value for 
 
 The CLI calls BetterOff's public tool API, `POST https://api.betteroff.finance/v1/tools/<tool>`, the same tools the BetterOff MCP server offers. Its commands and flags come from the public spec at [`/openapi/tools.json`](https://api.betteroff.finance/openapi/tools.json), cached for an hour in `~/.cache/betteroff`. A new read tool in BetterOff shows up as a command without a CLI update.
 
-Only tools the spec marks read-only become commands. Tools that propose changes or request transfers are left out, even if the spec labels one read-only by mistake. The token's scopes are the real limit, so give it read scopes only.
+Only tools the spec marks read-only become commands. Tools that propose changes or request transfers are left out, even if the spec labels one read-only by mistake. BetterOff enforces the real limit: a browser sign-in can only get read scopes, and an API token has the scopes you gave it, so give it read scopes only.
+
+## Upgrade and uninstall
+
+```sh
+brew upgrade betteroff
+```
+
+With the install script, run it again. `betteroff --version` shows the installed version.
+
+To remove the CLI, sign out first so the sign-in ends at BetterOff, then delete the binary and its cache:
+
+```sh
+betteroff logout
+brew uninstall betteroff   # or: rm ~/.local/bin/betteroff
+rm -rf ~/.cache/betteroff
+```
+
+## Troubleshooting
+
+| Message | What to do |
+| --- | --- |
+| `Not signed in. Run: betteroff login` | Sign in, or set `BETTEROFF_API_TOKEN`. |
+| `Your BetterOff sign-in has expired or was revoked.` | Run `betteroff login` again. Sign-ins last up to 30 days, and ending the connection in BetterOff's settings revokes it. |
+| `The system keychain refused the request` | The keychain is locked, which is common over SSH. Run `security unlock-keychain` on macOS, or use `BETTEROFF_API_TOKEN`. |
+| `Sign-in timed out.` | The browser did not come back within 5 minutes. Over SSH, paste the address the browser ends on. |
+| A command needs a flag you do not have | `betteroff <command> --help` lists its flags; required ones are marked. |
 
 ## Environment variables
 
@@ -144,7 +178,7 @@ Only tools the spec marks read-only become commands. Tools that propose changes 
 - **Pinned trust.** Requests trust a bundled Mozilla root certificate snapshot (`src/ca.pem`) instead of Bun's built-in list, which still includes roots Mozilla has distrusted.
 - **Safe terminal output.** Merchant names and other text come from banks and other third parties. The CLI replaces control characters and bidirectional overrides before printing, so that text cannot move the cursor, rewrite the screen, set the clipboard, or reorder what you see. `--json` output escapes the same characters and still parses to the same value.
 - **Supply chain.** Dependencies are pinned to exact versions with a frozen lockfile, and new releases wait 3 days before install. CI actions are pinned to commit SHAs with read-only tokens. CodeQL scans the code and workflows. OSV-Scanner checks every version in `bun.lock` against known vulnerabilities on each pull request and daily. Pull requests also fail on vulnerable new Actions, and Socket reviews dependency changes.
-- **Verifiable releases.** Release binaries are built by a GitHub Actions workflow from a version tag, with signed build provenance and SHA-256 checksums. From v0.1.2 the macOS binaries are signed with Developer ID and notarized by Apple. Releases are immutable, so a published binary cannot be replaced.
+- **Verifiable releases.** Release binaries are built by a GitHub Actions workflow from a version tag, with signed build provenance and SHA-256 checksums. Since v0.1.2 the macOS binaries are signed with a Developer ID (`Zachary Roth`, team `7F3ZJMU55Z`), use the hardened runtime, and are notarized by Apple. Releases are immutable, so a published binary cannot be replaced.
 
 Report a vulnerability to [security@betteroff.finance](mailto:security@betteroff.finance), not in a public issue. See [SECURITY.md](SECURITY.md).
 
@@ -176,7 +210,11 @@ Secrets live in the `release` environment, which only `v*` tags can use:
 | `APPLE_NOTARY_ISSUER_ID` | The App Store Connect issuer ID |
 | `HOMEBREW_TAP_DEPLOY_KEY` | Private half of a deploy key that can write only to the tap repository |
 
-Notarization runs when the repository variable `NOTARIZE` is `true`. From then on, a release whose macOS binaries cannot be signed and notarized is not published.
+Notarization is on (repository variable `NOTARIZE` is `true`), so a release whose macOS binaries are not signed and accepted by Apple is not published. Apple usually answers in minutes but can take over an hour; the job waits up to 80 minutes.
+
+If a release run fails before it publishes, no release exists yet. Fix the cause, then move the tag to the fixed commit: `git push origin :refs/tags/v<version>`, re-create the signed tag, and push it. Once published, a release cannot change; release a new version instead.
+
+The Developer ID certificate expires five years after it was issued. Binaries signed before then keep working, because each signature carries a secure timestamp. To replace it, export the new certificate and update the two `APPLE_DEVELOPER_ID_P12_*` secrets.
 
 ## License
 
