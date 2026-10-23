@@ -1,0 +1,27 @@
+{
+	"name": "betteroff-cli",
+	"version": "0.1.0",
+	"description": "Read your BetterOff household from the terminal.",
+	"private": true,
+	"type": "module",
+	"license": "UNLICENSED",
+	"packageManager": "bun@1.4.3",
+	"bin": {
+		"betteroff": "./src/main.ts"
+	},
+	"scripts": {
+		"build": "bun build src/main.ts --compile --minify --outfile dist/betteroff",
+		"test": "bun test src/test",
+		"typecheck": "tsc -p tsconfig.json"
+	},
+	"dependencies": {
+		"zod": "4.6.7"
+	},
+	"devDependencies": {
+		"@types/bun": "1.4.3",
+		"typescript": "7.0.2"
+	},
+	"engines": {
+		"bun": ">=1.4.3"
+	}
+}
