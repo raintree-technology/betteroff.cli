@@ -76,7 +76,8 @@ jobs:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v') && vars.NOTARIZE == 'true'
     runs-on: macos-latest
-    timeout-minutes: 30
+    # Apple can take over an hour on a new account's first submissions.
+    timeout-minutes: 100
     environment: release
     permissions:
       contents: read
@@ -126,16 +127,24 @@ jobs:
           test -n "$NOTARY_KEY" && test -n "$NOTARY_KEY_ID" && test -n "$NOTARY_ISSUER_ID" || { echo "notary secrets are not set"; exit 1; }
           key="$RUNNER_TEMP/notary.p8"
           printf '%s\n' "$NOTARY_KEY" > "$key"
+          auth=(--key "$key" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID")
+          # Submit both first, so Apple processes them at the same time.
           for target in darwin-arm64 darwin-x64; do
             ditto -c -k --keepParent "release/betteroff-$target" "$RUNNER_TEMP/betteroff-$target.zip"
-            xcrun notarytool submit "$RUNNER_TEMP/betteroff-$target.zip" \
-              --key "$key" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" \
-              --wait --timeout 25m --output-format json > "$RUNNER_TEMP/notary-$target.json"
-            status="$(plutil -extract status raw -o - "$RUNNER_TEMP/notary-$target.json")"
-            id="$(plutil -extract id raw -o - "$RUNNER_TEMP/notary-$target.json")"
+            xcrun notarytool submit "$RUNNER_TEMP/betteroff-$target.zip" "${auth[@]}" \
+              --output-format json > "$RUNNER_TEMP/submit-$target.json"
+            id="$(plutil -extract id raw -o - "$RUNNER_TEMP/submit-$target.json")"
+            echo "betteroff-$target: submitted ($id)"
+            echo "$id" > "$RUNNER_TEMP/id-$target"
+          done
+          for target in darwin-arm64 darwin-x64; do
+            id="$(cat "$RUNNER_TEMP/id-$target")"
+            xcrun notarytool wait "$id" "${auth[@]}" --timeout 80m || true
+            xcrun notarytool info "$id" "${auth[@]}" --output-format json > "$RUNNER_TEMP/info-$target.json"
+            status="$(plutil -extract status raw -o - "$RUNNER_TEMP/info-$target.json")"
             echo "betteroff-$target: $status ($id)"
             if [ "$status" != "Accepted" ]; then
-              xcrun notarytool log "$id" --key "$key" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID"
+              [ "$status" = "In Progress" ] || xcrun notarytool log "$id" "${auth[@]}"
               exit 1
             fi
           done
