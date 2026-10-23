@@ -22,6 +22,16 @@ describe("toolsFromSpec", () => {
 		expect(names).not.toContain("betteroff_propose_category_change");
 	});
 
+	test("ignores unsafe tool and input names, and strips terminal escapes from spec text", () => {
+		const checklist = get("checklist");
+
+		expect(tools.some((tool) => tool.name.includes("/"))).toBe(false);
+		expect(checklist.summary).toBe("Get checklist\uFFFD[2J");
+		expect(checklist.description).toBe("Read the checklist.\uFFFD");
+		expect(checklist.flags.map((flag) => flag.property)).toEqual(["section"]);
+		expect(checklist.flags[0]?.choices).toEqual(["estate"]);
+	});
+
 	test("shortens commands and falls back to the full name on a collision", () => {
 		expect(get("accounts").name).toBe("betteroff_list_accounts");
 		expect(get("list-accounts").name).toBe("betteroff_list_accounts");

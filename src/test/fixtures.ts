@@ -66,6 +66,32 @@ export const fixtureSpec: JsonObject = {
 			type: "object",
 			properties: {},
 		}),
+		// Names that are not safe tool names, and text a terminal would act on.
+		"/v1/tools/betteroff_get_x/../../admin": tool("betteroff_get_x/../../admin", true, {
+			type: "object",
+			properties: {},
+		}),
+		"/v1/tools/betteroff_get_checklist": {
+			post: {
+				operationId: "betteroff_get_checklist",
+				summary: "Get checklist\u001b[2J",
+				description: "Read the checklist.\u202e",
+				"x-mcp-annotations": { readOnlyHint: true },
+				requestBody: {
+					content: {
+						"application/json": {
+							schema: {
+								type: "object",
+								properties: {
+									section: { type: "string", enum: ["estate", "evil\u001b[2J"] },
+									"bad-name": { type: "string" },
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 		"/v1/tools/betteroff_request_transfer": tool("betteroff_request_transfer", false, {
 			type: "object",
 			properties: { amountUsdc: { type: "string" } },
@@ -127,6 +153,7 @@ export function fakeDeps(respond: Responder, overrides: Partial<CliDeps> = {}) {
 		},
 		readSecret: async () => TOKEN,
 		now: () => 1_000_000,
+		keychainTimeoutMs: 50,
 		...overrides,
 	};
 

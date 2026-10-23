@@ -3,6 +3,7 @@ import * as z from "zod";
 import { parseToolArgs, UsageError } from "./args";
 import { ansiStyle, plainStyle, renderPretty, type Style } from "./render";
 import { findTool, type Tool, toolsFromSpec, toolsSpecSchema } from "./spec";
+import { safeJson, safeText } from "./text";
 
 export const VERSION = "0.1.0";
 
@@ -39,6 +40,8 @@ export type CliDeps = {
 	specCache: SpecCache;
 	readSecret: (prompt: string) => Promise<string>;
 	now: () => number;
+	/** How long a keychain call may take before the CLI gives up on it. */
+	keychainTimeoutMs: number;
 };
 
 const cachedSpecSchema = z.object({
@@ -56,8 +59,34 @@ const errorBodySchema = z.looseObject({
 
 class ApiError extends Error {}
 
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/** Printable ASCII only: anything else in a token is a paste error or an attempt to inject a header. */
+const TOKEN_TEXT = /^[\x21-\x7e]+$/;
+
+/**
+ * The API origin. The token goes to this host, so it must be HTTPS (plain HTTP only on this
+ * machine, for local development) and a bare origin with no credentials, path, or query.
+ */
 function apiUrl(deps: CliDeps): string {
-	return (deps.env.BETTEROFF_API_URL ?? DEFAULT_API_URL).replace(/\/+$/, "");
+	const raw = deps.env.BETTEROFF_API_URL ?? DEFAULT_API_URL;
+	let url: URL;
+
+	try {
+		url = new URL(raw);
+	} catch {
+		throw new UsageError("BETTEROFF_API_URL is not a valid URL.");
+	}
+
+	const secure =
+		url.protocol === "https:" || (url.protocol === "http:" && LOOPBACK_HOSTS.has(url.hostname));
+
+	if (!secure) throw new UsageError("BETTEROFF_API_URL must use https:// (http:// only for localhost).");
+
+	if (url.username || url.password || url.search || url.hash || url.pathname !== "/")
+		throw new UsageError("BETTEROFF_API_URL must be an origin only, such as https://api.betteroff.finance");
+
+	return url.origin;
 }
 
 async function loadTools(deps: CliDeps): Promise<{ version: string; tools: Tool[] }> {
@@ -77,6 +106,7 @@ async function loadTools(deps: CliDeps): Promise<{ version: string; tools: Tool[
 	try {
 		const response = await deps.fetch(`${base}/openapi/tools.json`, {
 			headers: { accept: "application/json", "user-agent": `betteroff-cli/${VERSION}` },
+			redirect: "error",
 		});
 
 		if (!response.ok) throw new ApiError(`HTTP ${response.status}`);
@@ -96,24 +126,37 @@ async function loadTools(deps: CliDeps): Promise<{ version: string; tools: Tool[
 }
 
 /** A locked keychain (common over SSH) throws instead of prompting; say how to get past it. */
-async function keychain<T>(action: () => Promise<T>): Promise<T> {
+async function keychain<T>(deps: CliDeps, action: () => Promise<T>): Promise<T> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const timeout = new Promise<never>((_, reject) => {
+		timer = setTimeout(
+			() => reject(new Error(`no answer after ${deps.keychainTimeoutMs / 1000} seconds`)),
+			deps.keychainTimeoutMs,
+		);
+	});
+
 	try {
-		return await action();
+		return await Promise.race([action(), timeout]);
 	} catch (error) {
 		const reason = error instanceof Error ? error.message : "unknown error";
 
 		throw new ApiError(
 			`The system keychain refused the request (${reason}). Unlock it and try again, or set BETTEROFF_API_TOKEN in this shell instead.`,
 		);
+	} finally {
+		clearTimeout(timer);
 	}
 }
 
 async function resolveToken(deps: CliDeps): Promise<{ token: string; source: string } | null> {
 	const fromEnv = deps.env.BETTEROFF_API_TOKEN?.trim();
 
+	if (fromEnv && !TOKEN_TEXT.test(fromEnv))
+		throw new UsageError("BETTEROFF_API_TOKEN has spaces or unprintable characters.");
+
 	if (fromEnv) return { token: fromEnv, source: "BETTEROFF_API_TOKEN" };
 
-	const stored = await keychain(() => deps.tokens.get());
+	const stored = await keychain(deps, () => deps.tokens.get());
 
 	return stored ? { token: stored, source: "system keychain" } : null;
 }
@@ -125,14 +168,20 @@ function errorMessage(status: number, body: JsonValue, retryAfter: string | null
 
 	if (status === 401) return `Not signed in or the token was revoked. Run: betteroff login`;
 
-	if (status === 429) return `Rate limited. Try again in ${retryAfter ?? "a few"} seconds.`;
+	if (status === 429) {
+		const seconds = /^\d{1,5}$/.test(retryAfter ?? "") ? retryAfter : "a few";
 
-	return `${text}${code}`;
+		return `Rate limited. Try again in ${seconds} seconds.`;
+	}
+
+	return safeText(`${text}${code}`);
 }
 
 async function callTool(deps: CliDeps, token: string, tool: Tool, args: JsonValue) {
-	const response = await deps.fetch(`${apiUrl(deps)}/v1/tools/${tool.name}`, {
+	// A redirect would resend the token to wherever it points, so any redirect is an error.
+	const response = await deps.fetch(`${apiUrl(deps)}/v1/tools/${encodeURIComponent(tool.name)}`, {
 		method: "POST",
+		redirect: "error",
 		headers: {
 			authorization: `Bearer ${token}`,
 			"content-type": "application/json",
@@ -294,7 +343,7 @@ async function login(deps: CliDeps): Promise<number> {
 		return 1;
 	}
 
-	await keychain(() => deps.tokens.set(token));
+	await keychain(deps, () => deps.tokens.set(token));
 	deps.stderr(`Saved ${token.slice(0, DISPLAY_PREFIX_LENGTH)}… to the system keychain.\n`);
 
 	if (!check.ok) deps.stderr(`Note: ${errorMessage(check.status, check.body, check.retryAfter)}\n`);
@@ -337,7 +386,7 @@ export async function run(argv: string[], deps: CliDeps): Promise<number> {
 		if (command === "status") return await status(deps);
 
 		if (command === "logout") {
-			const removed = await keychain(() => deps.tokens.delete());
+			const removed = await keychain(deps, () => deps.tokens.delete());
 
 			deps.stderr(removed ? "Removed the saved token.\n" : "No saved token.\n");
 
@@ -371,7 +420,7 @@ export async function run(argv: string[], deps: CliDeps): Promise<number> {
 
 		if (!result.ok) throw new ApiError(errorMessage(result.status, result.body, result.retryAfter));
 
-		if (json || !deps.stdoutIsTTY) deps.stdout(`${JSON.stringify(result.body, null, 2)}\n`);
+		if (json || !deps.stdoutIsTTY) deps.stdout(`${safeJson(JSON.stringify(result.body, null, 2))}\n`);
 		else deps.stdout(renderPretty(result.body, deps.columns, style));
 
 		return 0;

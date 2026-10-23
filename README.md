@@ -85,7 +85,11 @@ Only tools the spec marks read-only become commands. Tools that propose changes 
 
 ## Security
 
-The token stays in your system keychain or your environment and is sent only to the BetterOff API. Requests trust a bundled Mozilla root certificate snapshot (`src/ca.pem`) instead of Bun's built-in list, which still includes roots Mozilla has distrusted.
+- **Read-only.** Only tools the spec marks read-only become commands, and tools that propose changes or request transfers are left out by name as well. Give the token read scopes only; the token's scopes are the limit BetterOff enforces.
+- **The token goes only to the BetterOff API, over HTTPS.** It is saved in the system keychain, never in a file. On macOS it goes through Apple's `security` tool on stdin, never on a command line. `BETTEROFF_API_URL` must be an `https://` origin (`http://` only for localhost), and the CLI never follows a redirect, so the token cannot be sent somewhere else by mistake.
+- **Pinned trust.** Requests trust a bundled Mozilla root certificate snapshot (`src/ca.pem`) instead of Bun's built-in list, which still includes roots Mozilla has distrusted.
+- **Safe terminal output.** Merchant names and other text come from banks and other third parties. The CLI replaces control characters and bidirectional overrides before printing, so that text cannot move the cursor, rewrite the screen, set the clipboard, or reorder what you see. `--json` output escapes the same characters and still parses to the same value.
+- **Supply chain.** Dependencies are pinned to exact versions with a frozen lockfile, and new releases wait 3 days before install. CI actions are pinned to commit SHAs with read-only tokens. CodeQL scans the code and workflows, pull requests fail on vulnerable new dependencies, and Socket reviews dependency changes.
 
 Report a vulnerability to [security@betteroff.finance](mailto:security@betteroff.finance), not in a public issue. See [SECURITY.md](SECURITY.md).
 
