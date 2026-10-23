@@ -39,7 +39,7 @@ bun run build
 ## Sign in
 
 1. In BetterOff, open [Settings > API tokens](https://app.betteroff.finance/settings/api-tokens) and create a token with read scopes only.
-2. Run `betteroff login` and paste the token. The CLI checks it with BetterOff and saves it in your system keychain (macOS Keychain, libsecret on Linux, or Windows Credential Manager).
+2. Run `betteroff login` and paste the token. The CLI checks it with BetterOff and saves it in your system keychain: macOS Keychain (through Apple's `security` tool, so upgrades never prompt for access), libsecret on Linux, or Windows Credential Manager.
 
 `betteroff status` shows which token and API the CLI uses. `betteroff logout` removes the saved token.
 

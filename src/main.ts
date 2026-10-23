@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { secrets } from "bun";
 import { type CliDeps, run } from "./cli";
+import { macosTokenStore, runSecurity } from "./keychain";
 import { caBundle } from "./trust";
 
 const KEYCHAIN = { service: "finance.betteroff.cli", name: "api-token" };
@@ -56,11 +57,14 @@ const deps: CliDeps = {
 	stdoutIsTTY: process.stdout.isTTY === true,
 	columns: process.stdout.columns ?? 100,
 	fetch: (url, init) => fetch(url, { ...init, tls: { ca: caBundle } }),
-	tokens: {
-		get: () => secrets.get(KEYCHAIN),
-		set: (token) => secrets.set({ ...KEYCHAIN, value: token }),
-		delete: () => secrets.delete(KEYCHAIN),
-	},
+	tokens:
+		process.platform === "darwin"
+			? macosTokenStore(runSecurity)
+			: {
+					get: () => secrets.get(KEYCHAIN),
+					set: (token) => secrets.set({ ...KEYCHAIN, value: token }),
+					delete: () => secrets.delete(KEYCHAIN),
+				},
 	specCache: {
 		read: async () => {
 			const file = Bun.file(specPath);
