@@ -65,12 +65,20 @@ bun run build
 
 ## Sign in
 
+```sh
+betteroff login
+```
+
+Your browser opens BetterOff's sign-in and consent page. Approve the BetterOff CLI, and the browser hands a one-time code back to the CLI on `127.0.0.1`; the CLI never sees your password. The CLI can ask only for read access, and it renews its access on its own for up to 30 days. You can end it at any time under Settings > Agent connections in BetterOff, or with `betteroff logout`.
+
+The sign-in is saved in your system keychain: macOS Keychain (through Apple's `security` tool, so upgrades never prompt for access), libsecret on Linux, or Windows Credential Manager. `betteroff status` shows how the CLI is signed in.
+
+### Without a browser
+
+On a machine without a browser, such as over SSH, or where the keychain is locked:
+
 1. In BetterOff, open [Settings > API tokens](https://app.betteroff.finance/settings/api-tokens) and create a token with read scopes only.
-2. Run `betteroff login` and paste the token. The CLI checks it with BetterOff and saves it in your system keychain: macOS Keychain (through Apple's `security` tool, so upgrades never prompt for access), libsecret on Linux, or Windows Credential Manager.
-
-`betteroff status` shows which token and API the CLI uses. `betteroff logout` removes the saved token.
-
-On a machine where the keychain is locked or unavailable, such as an SSH session or CI, set `BETTEROFF_API_TOKEN` instead.
+2. Run `betteroff login --token` and paste it, or set `BETTEROFF_API_TOKEN` (for CI).
 
 ## Use
 
@@ -113,7 +121,8 @@ Only tools the spec marks read-only become commands. Tools that propose changes 
 ## Security
 
 - **Read-only.** Only tools the spec marks read-only become commands, and tools that propose changes or request transfers are left out by name as well. Give the token read scopes only; the token's scopes are the limit BetterOff enforces.
-- **The token goes only to the BetterOff API, over HTTPS.** It is saved in the system keychain, never in a file. On macOS it goes through Apple's `security` tool on stdin, never on a command line. `BETTEROFF_API_URL` must be an `https://` origin (`http://` only for localhost), and the CLI never follows a redirect, so the token cannot be sent somewhere else by mistake.
+- **Sign-in uses OAuth with PKCE.** `betteroff login` uses the authorization code flow on a loopback redirect (RFC 8252), checks `state` and the issuer on the way back, and identifies itself with a client metadata document on betteroff.finance that allows only read scopes. Each refresh replaces the refresh token, and a lock keeps two commands from refreshing at once. `betteroff logout` revokes the sign-in at BetterOff.
+- **Tokens go only to BetterOff, over HTTPS.** They are saved in the system keychain, never in a file. On macOS it goes through Apple's `security` tool on stdin, never on a command line. `BETTEROFF_API_URL` must be an `https://` origin (`http://` only for localhost), and the CLI never follows a redirect, so the token cannot be sent somewhere else by mistake.
 - **Pinned trust.** Requests trust a bundled Mozilla root certificate snapshot (`src/ca.pem`) instead of Bun's built-in list, which still includes roots Mozilla has distrusted.
 - **Safe terminal output.** Merchant names and other text come from banks and other third parties. The CLI replaces control characters and bidirectional overrides before printing, so that text cannot move the cursor, rewrite the screen, set the clipboard, or reorder what you see. `--json` output escapes the same characters and still parses to the same value.
 - **Supply chain.** Dependencies are pinned to exact versions with a frozen lockfile, and new releases wait 3 days before install. CI actions are pinned to commit SHAs with read-only tokens. CodeQL scans the code and workflows. OSV-Scanner checks every version in `bun.lock` against known vulnerabilities on each pull request and daily. Pull requests also fail on vulnerable new Actions, and Socket reviews dependency changes.

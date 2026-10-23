@@ -77,7 +77,7 @@ describe("run", () => {
 	test("login validates the token with the API, then saves it", async () => {
 		const harness = fakeDeps(api(() => Response.json({ steps: [] })));
 
-		expect(await run(["login"], harness.deps)).toBe(0);
+		expect(await run(["login", "--token"], harness.deps)).toBe(0);
 		expect(harness.storedToken()).toBe(TOKEN);
 		expect(harness.stderr()).toContain("Saved bo_pat_aaaa…");
 		expect(await run(["status"], harness.deps)).toBe(0);
@@ -87,7 +87,7 @@ describe("run", () => {
 	test("login saves nothing when the API rejects the token", async () => {
 		const harness = fakeDeps(api(() => Response.json({}, { status: 401 })));
 
-		expect(await run(["login"], harness.deps)).toBe(1);
+		expect(await run(["login", "--token"], harness.deps)).toBe(1);
 		expect(harness.storedToken()).toBeNull();
 	});
 
@@ -100,7 +100,7 @@ describe("run", () => {
 
 		harness.deps.tokens = { get: locked, set: locked, delete: locked };
 
-		expect(await run(["login"], harness.deps)).toBe(1);
+		expect(await run(["login", "--token"], harness.deps)).toBe(1);
 		expect(harness.stderr()).toContain("User interaction is not allowed");
 		expect(harness.stderr()).toContain("BETTEROFF_API_TOKEN");
 		expect(await run(["accounts"], harness.deps)).toBe(1);
@@ -113,7 +113,7 @@ describe("run", () => {
 			{ readSecret: async () => "hunter2" },
 		);
 
-		expect(await run(["login"], harness.deps)).toBe(2);
+		expect(await run(["login", "--token"], harness.deps)).toBe(2);
 		expect(harness.requests).toEqual([]);
 	});
 
