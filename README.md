@@ -48,13 +48,19 @@ The accounts above are made up.
 
 ## Install
 
-On macOS or Linux:
+With [Homebrew](https://brew.sh) on macOS or Linux:
+
+```sh
+brew install raintree-technology/tap/betteroff
+```
+
+Or with the install script:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/raintree-technology/betteroff.cli/main/install.sh | sh
 ```
 
-The script downloads the binary for your system from the [latest release](https://github.com/raintree-technology/betteroff.cli/releases/latest) into `~/.local/bin` and refuses to install it unless it matches the release's `SHA256SUMS`. If the [GitHub CLI](https://cli.github.com) is installed and signed in, it also checks the binary's build provenance, which proves it was built by this repository's release workflow. Set `BETTEROFF_VERSION=0.1.0` for a specific version or `BETTEROFF_INSTALL_DIR` for another folder. Run the same command again to upgrade.
+The script downloads the binary for your system from the [latest release](https://github.com/raintree-technology/betteroff.cli/releases/latest) into `~/.local/bin` and refuses to install it unless it matches the release's `SHA256SUMS`. If the [GitHub CLI](https://cli.github.com) is installed and signed in, it also checks the binary's build provenance, which proves it was built by this repository's release workflow. Set `BETTEROFF_VERSION=0.1.0` for a specific version or `BETTEROFF_INSTALL_DIR` for another folder. Run the same command again to upgrade (`brew upgrade betteroff` with Homebrew).
 
 On Windows, download `betteroff-windows-x64.exe` from the release and compare it with `SHA256SUMS`.
 
@@ -151,3 +157,27 @@ bun run test
 ```
 
 Tests use a fake API and never call BetterOff.
+
+### Releasing
+
+1. Set the version in `package.json` and `VERSION` in `src/cli.ts`, and merge.
+2. Tag the merge commit with a signed tag, `git tag -s v<version>`, and push the tag.
+
+The `Release` workflow builds the binaries, signs and notarizes the macOS ones, attests provenance, publishes the GitHub release, and updates [`raintree-technology/homebrew-tap`](https://github.com/raintree-technology/homebrew-tap). Releases are immutable; to fix one, release a new version.
+
+Secrets live in the `release` environment, which only `v*` tags can use:
+
+| Secret | What it is |
+| --- | --- |
+| `APPLE_DEVELOPER_ID_P12_BASE64` | Developer ID Application certificate and private key, as base64 of a `.p12` export |
+| `APPLE_DEVELOPER_ID_P12_PASSWORD` | Password of that `.p12` |
+| `APPLE_NOTARY_KEY_P8` | App Store Connect API key (`.p8` contents) with the Developer role, for `notarytool` |
+| `APPLE_NOTARY_KEY_ID` | That key's ID |
+| `APPLE_NOTARY_ISSUER_ID` | The App Store Connect issuer ID |
+| `HOMEBREW_TAP_DEPLOY_KEY` | Private half of a deploy key that can write only to the tap repository |
+
+Notarization runs when the repository variable `NOTARIZE` is `true`. From then on, a release whose macOS binaries cannot be signed and notarized is not published.
+
+## License
+
+MIT, see [LICENSE](LICENSE). The BetterOff name and logo are trademarks of FinSync LLC and are not covered by the license.
