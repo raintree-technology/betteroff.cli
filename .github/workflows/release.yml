@@ -110,6 +110,8 @@ jobs:
           echo "IDENTITY=$identity" >> "$GITHUB_ENV"
       - name: Sign with Developer ID and the hardened runtime
         run: |
+          # Artifacts do not keep file modes.
+          chmod +x release/betteroff-darwin-arm64 release/betteroff-darwin-x64
           for file in release/betteroff-darwin-arm64 release/betteroff-darwin-x64; do
             codesign --force --timestamp --options runtime --entitlements macos/entitlements.plist --sign "$IDENTITY" "$file"
             codesign --verify --strict --verbose=2 "$file"
