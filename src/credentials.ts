@@ -37,7 +37,12 @@ const EXPIRY_MARGIN_MS = 60_000;
 
 export function sessionFromTokens(
 	tokens: TokenResponse,
-	context: { tokenEndpoint: string; revocationEndpoint: string | undefined; resource: string; now: number },
+	context: {
+		tokenEndpoint: string;
+		revocationEndpoint: string | undefined;
+		resource: string;
+		now: number;
+	},
 	previousRefreshToken?: string,
 ): OAuthSession {
 	return {

@@ -74,7 +74,10 @@ function authServer(options: { serverMetadata?: Record<string, string> } = {}) {
 
 			// Like BetterOff: a token it no longer knows is a 400, not RFC 7009's 200.
 			if (token !== world.refreshToken)
-				return Response.json({ error: "invalid_request", error_description: "token not found" }, { status: 400 });
+				return Response.json(
+					{ error: "invalid_request", error_description: "token not found" },
+					{ status: 400 },
+				);
 
 			world.revoked.push(token);
 
@@ -154,14 +157,18 @@ describe("browser sign-in", () => {
 
 		const query = world.authorizeUrl.searchParams;
 
-		expect(world.authorizeUrl.origin + world.authorizeUrl.pathname).toBe(`${ISSUER}/oauth2/authorize`);
+		expect(world.authorizeUrl.origin + world.authorizeUrl.pathname).toBe(
+			`${ISSUER}/oauth2/authorize`,
+		);
 		expect(query.get("client_id")).toBe(CLIENT_ID);
 		expect(query.get("response_type")).toBe("code");
 		expect(query.get("code_challenge_method")).toBe("S256");
 		expect(query.get("redirect_uri")).toBe("http://127.0.0.1:5555/callback");
 		expect(query.get("resource")).toBe(`${API}/mcp`);
 		expect(query.get("scope")?.split(" ")).toEqual(SCOPES);
-		expect(SCOPES.every((scope) => scope.endsWith(":read") || scope === "offline_access")).toBe(true);
+		expect(SCOPES.every((scope) => scope.endsWith(":read") || scope === "offline_access")).toBe(
+			true,
+		);
 
 		const exchange = world.tokenForms[0];
 
@@ -199,7 +206,9 @@ describe("browser sign-in", () => {
 
 	test("over SSH, prints the link instead of opening a browser and accepts the pasted address", async () => {
 		const server = authServer();
-		const harness = fakeDeps(server.respond, { env: { SSH_CONNECTION: "100.94.94.108 51234 100.1.1.1 22" } });
+		const harness = fakeDeps(server.respond, {
+			env: { SSH_CONNECTION: "100.94.94.108 51234 100.1.1.1 22" },
+		});
 		const opened: string[] = [];
 		let pastes = 0;
 
@@ -320,7 +329,10 @@ describe("signed-in requests", () => {
 			return turn;
 		};
 
-		const results = await Promise.all([run(["accounts"], harness.deps), run(["accounts"], harness.deps)]);
+		const results = await Promise.all([
+			run(["accounts"], harness.deps),
+			run(["accounts"], harness.deps),
+		]);
 
 		expect(results).toEqual([0, 0]);
 		expect(world.tokenForms).toHaveLength(1);
@@ -380,7 +392,10 @@ describe("pastedRedirect", () => {
 describe("discover", () => {
 	test.each([
 		[{ token_endpoint: "https://evil.example/token" }, "token endpoint"],
-		[{ authorization_endpoint: "http://app.betteroff.finance/api/auth/authorize" }, "authorization endpoint"],
+		[
+			{ authorization_endpoint: "http://app.betteroff.finance/api/auth/authorize" },
+			"authorization endpoint",
+		],
 		[{ issuer: "https://evil.example" }, "does not match"],
 	])("rejects sign-in server metadata %p", async (metadata, message) => {
 		const { respond } = authServer({ serverMetadata: metadata });

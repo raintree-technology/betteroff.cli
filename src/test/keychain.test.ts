@@ -15,8 +15,12 @@ function fakeSecurity(result: SecurityResult) {
 
 describe("macosTokenStore", () => {
 	test("reads the token and treats a missing item as signed out", async () => {
-		expect(await fakeSecurity({ code: 0, stdout: `${TOKEN}\n`, stderr: "" }).store.get()).toBe(TOKEN);
-		expect(await fakeSecurity({ code: 44, stdout: "", stderr: "not found" }).store.get()).toBeNull();
+		expect(await fakeSecurity({ code: 0, stdout: `${TOKEN}\n`, stderr: "" }).store.get()).toBe(
+			TOKEN,
+		);
+		expect(
+			await fakeSecurity({ code: 44, stdout: "", stderr: "not found" }).store.get(),
+		).toBeNull();
 	});
 
 	test("passes the token on stdin, never in the arguments", async () => {
@@ -43,11 +47,16 @@ describe("macosTokenStore", () => {
 		const locked = {
 			code: 36,
 			stdout: "",
-			stderr: "security: SecKeychainItemCreateFromContent (<default>): User interaction is not allowed.\n",
+			stderr:
+				"security: SecKeychainItemCreateFromContent (<default>): User interaction is not allowed.\n",
 		};
 
-		await expect(fakeSecurity(locked).store.set(TOKEN)).rejects.toThrow("User interaction is not allowed");
-		await expect(fakeSecurity(locked).store.get()).rejects.toThrow("User interaction is not allowed");
+		await expect(fakeSecurity(locked).store.set(TOKEN)).rejects.toThrow(
+			"User interaction is not allowed",
+		);
+		await expect(fakeSecurity(locked).store.get()).rejects.toThrow(
+			"User interaction is not allowed",
+		);
 	});
 
 	test("delete reports whether there was a token", async () => {

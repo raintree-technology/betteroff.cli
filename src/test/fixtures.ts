@@ -1,5 +1,5 @@
-import type { JsonObject } from "../json";
 import type { CliDeps } from "../cli";
+import type { JsonObject } from "../json";
 
 function tool(name: string, readOnly: boolean, schema: JsonObject): JsonObject {
 	return {

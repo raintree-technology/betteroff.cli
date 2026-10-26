@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 import { chmod, mkdir, writeFile } from "node:fs/promises";
-import { createInterface } from "node:readline/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { createInterface } from "node:readline/promises";
 import { secrets } from "bun";
 import { type CliDeps, run } from "./cli";
 import { macosTokenStore, runSecurity } from "./keychain";

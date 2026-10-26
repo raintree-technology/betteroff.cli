@@ -11,6 +11,7 @@
 	},
 	"scripts": {
 		"build": "bun build src/main.ts --compile --minify --outfile dist/betteroff",
+		"lint": "biome check . --diagnostic-level=error",
 		"test": "bun test src/test",
 		"typecheck": "tsc -p tsconfig.json"
 	},
@@ -18,6 +19,8 @@
 		"zod": "4.6.7"
 	},
 	"devDependencies": {
+		"@biomejs/biome": "2.5.15",
+		"@raintree-technology/trellis": "0.3.2",
 		"@types/bun": "1.4.3",
 		"typescript": "7.0.2"
 	},

@@ -37,7 +37,8 @@ export function macosTokenStore(run: SecurityRunner): TokenStore {
 			return result.stdout.trim() || null;
 		},
 		set: async (token) => {
-			if (!SAFE_TOKEN.test(token)) throw new Error("Token has characters the keychain command cannot take");
+			if (!SAFE_TOKEN.test(token))
+				throw new Error("Token has characters the keychain command cannot take");
 
 			const result = await run(
 				["-i"],

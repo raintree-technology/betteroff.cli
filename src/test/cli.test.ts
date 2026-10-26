@@ -170,7 +170,9 @@ describe("run", () => {
 		);
 
 		expect(await run(["accounts"], harness.deps)).toBe(0);
-		expect(harness.requests.at(-1)?.url).toBe("http://localhost:8787/v1/tools/betteroff_list_accounts");
+		expect(harness.requests.at(-1)?.url).toBe(
+			"http://localhost:8787/v1/tools/betteroff_list_accounts",
+		);
 	});
 
 	test("never follows a redirect", async () => {
@@ -210,9 +212,14 @@ describe("run", () => {
 			api(() => Response.json(evil)),
 			{ env: { BETTEROFF_API_TOKEN: TOKEN, NO_COLOR: "1" }, stdoutIsTTY: true },
 		);
-		const piped = fakeDeps(api(() => Response.json(evil)), { env: { BETTEROFF_API_TOKEN: TOKEN } });
+		const piped = fakeDeps(
+			api(() => Response.json(evil)),
+			{ env: { BETTEROFF_API_TOKEN: TOKEN } },
+		);
 		const failing = fakeDeps(
-			api(() => Response.json({ message: "Denied\u001b[2J", code: "ACCESS_DENIED" }, { status: 403 })),
+			api(() =>
+				Response.json({ message: "Denied\u001b[2J", code: "ACCESS_DENIED" }, { status: 403 }),
+			),
 			{ env: { BETTEROFF_API_TOKEN: TOKEN } },
 		);
 

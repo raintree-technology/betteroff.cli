@@ -1,0 +1,137 @@
+{
+	"$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+	"extends": ["@raintree-technology/trellis/biome"],
+	"vcs": {
+		"enabled": true,
+		"clientKind": "git",
+		"useIgnoreFile": true
+	},
+	"files": {
+		"ignoreUnknown": true
+	},
+	"formatter": {
+		"enabled": true,
+		"indentStyle": "tab",
+		"lineWidth": 100
+	},
+	"assist": {
+		"actions": {
+			"source": {
+				"organizeImports": "on",
+				"useSortedAttributes": "on"
+			}
+		}
+	},
+	"javascript": {
+		"formatter": {
+			"quoteStyle": "double",
+			"jsxQuoteStyle": "double",
+			"semicolons": "always",
+			"trailingCommas": "all",
+			"arrowParentheses": "always",
+			"bracketSpacing": true,
+			"bracketSameLine": false,
+			"quoteProperties": "asNeeded"
+		}
+	},
+	"json": {
+		"formatter": {
+			"trailingCommas": "none"
+		}
+	},
+	"css": {
+		"parser": {
+			"tailwindDirectives": true
+		},
+		"formatter": {
+			"enabled": false
+		},
+		"linter": {
+			"enabled": false
+		}
+	},
+	"linter": {
+		"domains": {
+			"next": "recommended",
+			"react": "recommended",
+			"project": "recommended"
+		},
+		"rules": {
+			"complexity": {
+				"noExcessiveLinesPerFunction": {
+					"level": "warn",
+					"options": {
+						"maxLines": 100
+					}
+				},
+				"noForEach": "off",
+				"noUselessSwitchCase": "error",
+				"noUselessFragments": "error",
+				"useOptionalChain": "error"
+			},
+			"security": {
+				"noDangerouslySetInnerHtml": "error"
+			},
+			"suspicious": {
+				"noImplicitAnyLet": "error",
+				"noImportCycles": "error",
+				"noConfusingVoidType": "off",
+				"noConsole": "error",
+				"noArrayIndexKey": "error",
+				"noAssignInExpressions": "error",
+				"noNonNullAssertedOptionalChain": "error",
+				"noUndeclaredEnvVars": "error"
+			},
+			"nursery": {
+				"noFloatingPromises": "error",
+				"noMisusedPromises": "error",
+				"useSortedClasses": {
+					"level": "error",
+					"options": {
+						"functions": ["clsx", "cn", "cva", "tw", "twMerge"]
+					}
+				}
+			},
+			"performance": {
+				"noBarrelFile": "off",
+				"noImgElement": "error"
+			},
+			"correctness": {
+				"noUnusedVariables": "error",
+				"noUnusedImports": "error",
+				"noUnusedFunctionParameters": "error",
+				"useExhaustiveDependencies": "error"
+			},
+			"style": {
+				"useConst": "error",
+				"useTemplate": "error",
+				"useImportType": "error",
+				"noRestrictedImports": {
+					"level": "error",
+					"options": {
+						"paths": {
+							"zod": {
+								"importNames": ["z"],
+								"message": "Use `import * as z from \"zod\"`. The named `z` export keeps all of zod, about 380 KB with every locale, in each bundle that imports it."
+							}
+						}
+					}
+				},
+				"noNonNullAssertion": "error"
+			},
+			"a11y": {
+				"useSemanticElements": "error",
+				"noStaticElementInteractions": "error",
+				"useButtonType": "error",
+				"useAriaPropsSupportedByRole": "error",
+				"useAriaPropsForRole": "error",
+				"useFocusableInteractive": "error",
+				"noSvgWithoutTitle": "error",
+				"useKeyWithClickEvents": "error",
+				"noRedundantRoles": "error",
+				"noLabelWithoutControl": "error",
+				"noNoninteractiveTabindex": "error"
+			}
+		}
+	}
+}

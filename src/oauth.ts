@@ -226,7 +226,9 @@ export function pastedRedirect(text: string, redirectUri: string): URLSearchPara
 
 	const expected = new URL(redirectUri);
 
-	return url.origin === expected.origin && url.pathname === expected.pathname ? url.searchParams : null;
+	return url.origin === expected.origin && url.pathname === expected.pathname
+		? url.searchParams
+		: null;
 }
 
 /** Thrown when the server refuses a refresh token, so the user has to sign in again. */
@@ -258,7 +260,8 @@ async function tokenRequest(
 
 	const tokens = tokenResponseSchema.safeParse(body);
 
-	if (!tokens.success) throw new OAuthError("The sign-in server sent an unexpected token response.");
+	if (!tokens.success)
+		throw new OAuthError("The sign-in server sent an unexpected token response.");
 
 	return tokens.data;
 }
