@@ -57,8 +57,10 @@ jobs:
             bun build src/main.ts --compile --minify --target="bun-$target" --outfile "release/betteroff-$target$suffix"
           done
           # Ad hoc for now; the notarize job replaces this with Developer ID on a release.
-          codesign --force --sign - release/betteroff-darwin-arm64 release/betteroff-darwin-x64
+          codesign --force --options runtime --entitlements macos/entitlements.plist --sign - \
+            release/betteroff-darwin-arm64 release/betteroff-darwin-x64
           ./release/betteroff-darwin-arm64 --version
+          sh macos/check-jit.sh release/betteroff-darwin-arm64 release/betteroff-darwin-x64
           (cd release && shasum -a 256 betteroff-* > SHA256SUMS && cat SHA256SUMS)
       - name: Check the Homebrew formula generates
         run: sh scripts/homebrew-formula.sh 0.0.0 release/SHA256SUMS > /dev/null
@@ -118,6 +120,7 @@ jobs:
             codesign --verify --strict --verbose=2 "$file"
           done
           ./release/betteroff-darwin-arm64 --version
+          sh macos/check-jit.sh release/betteroff-darwin-arm64 release/betteroff-darwin-x64
       - name: Notarize
         env:
           NOTARY_KEY: ${{ secrets.APPLE_NOTARY_KEY_P8 }}
