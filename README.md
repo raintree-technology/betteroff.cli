@@ -50,7 +50,7 @@ The accounts above are made up.
 
 ## Before you start
 
-You need a [BetterOff](https://betteroff.finance) account with the accounts and wallets you want to read connected. Every member of the household must turn on Chat data access in BetterOff's Settings before any agent, this CLI included, can read household data.
+You need a [BetterOff](https://betteroff.finance) account with the accounts and wallets you want to read connected, and a BetterOff Core plan. The Free plan and trials do not include CLI access. Every member of the household must turn on Chat data access in BetterOff's Settings before any agent, this CLI included, can read household data.
 
 ## Install
 
@@ -190,7 +190,7 @@ bun run typecheck
 bun run test
 ```
 
-Tests use a fake API and never call BetterOff.
+Tests use a fake API and never call BetterOff. See [CONTRIBUTING.md](CONTRIBUTING.md) for pull request requirements.
 
 ### Releasing
 
@@ -216,6 +216,10 @@ If a release run fails before it publishes, no release exists yet. Fix the cause
 
 The Developer ID certificate expires five years after it was issued. Binaries signed before then keep working, because each signature carries a secure timestamp. To replace it, export the new certificate and update the two `APPLE_DEVELOPER_ID_P12_*` secrets.
 
-## License
+## Legal notice
 
-MIT, see [LICENSE](LICENSE). The BetterOff name and logo are trademarks of FinSync LLC and are not covered by the license.
+BetterOff is a financial tracking tool. It is not a bank, broker, or financial advisor, and it does not provide investment, tax, legal, or financial advice. Check results before you rely on them, especially when an AI agent reads them. Your use of BetterOff is governed by the [BetterOff Terms of Service](https://betteroff.finance/legal/terms).
+
+## License and brand assets
+
+This repository is available under the [MIT License](LICENSE). The license does not cover the BetterOff name, logo, or artwork, which are trademarks of FinSync LLC, or the hosted BetterOff service. See [Terms of Service, Section 10: Intellectual Property](https://betteroff.finance/legal/terms#intellectual-property).
