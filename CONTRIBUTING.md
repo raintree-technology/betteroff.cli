@@ -12,12 +12,13 @@ To run the `check` job locally, run these commands from the repository root with
 
 ```sh
 bun install --frozen-lockfile
+bun run lint
 bun run typecheck
 bun run test
 bun run build && ./dist/betteroff --version
 ```
 
-Tests use a fake API and never call BetterOff.
+Tests use a fake API and never call BetterOff. CI also scans the full Git history with gitleaks; run `gitleaks git --redact --no-banner .` to check locally.
 
 ## License
 
