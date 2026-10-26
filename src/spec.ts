@@ -1,5 +1,5 @@
-import type { JsonObject, JsonValue } from "./json";
 import * as z from "zod";
+import type { JsonObject, JsonValue } from "./json";
 import { safeText } from "./text";
 
 type JsonSchema = {

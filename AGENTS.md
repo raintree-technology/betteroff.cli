@@ -23,6 +23,7 @@ BetterOff is a household finance app. This repository is `betteroff`, a read-onl
 
   ```sh
   bun install --frozen-lockfile
+  bun run lint
   bun run typecheck
   bun run test
   bun run build && ./dist/betteroff --version

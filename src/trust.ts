@@ -19,7 +19,8 @@ export function trustedCertificates(pem: string): string[] {
 	for (const certificate of certificates) {
 		const fingerprint = new X509Certificate(certificate).fingerprint256.replaceAll(":", "");
 
-		if (DISTRUSTED_ROOTS.has(fingerprint)) throw new Error("TLS CA bundle contains a distrusted root");
+		if (DISTRUSTED_ROOTS.has(fingerprint))
+			throw new Error("TLS CA bundle contains a distrusted root");
 	}
 
 	return certificates;

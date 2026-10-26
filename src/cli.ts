@@ -1,4 +1,3 @@
-import type { JsonValue } from "./json";
 import * as z from "zod";
 import { parseToolArgs, UsageError } from "./args";
 import {
@@ -8,6 +7,7 @@ import {
 	type SessionStore,
 	sessionFromTokens,
 } from "./credentials";
+import type { JsonValue } from "./json";
 import {
 	authorizationCode,
 	authorizationUrl,
@@ -117,10 +117,13 @@ function apiUrl(deps: CliDeps): string {
 	const secure =
 		url.protocol === "https:" || (url.protocol === "http:" && LOOPBACK_HOSTS.has(url.hostname));
 
-	if (!secure) throw new UsageError("BETTEROFF_API_URL must use https:// (http:// only for localhost).");
+	if (!secure)
+		throw new UsageError("BETTEROFF_API_URL must use https:// (http:// only for localhost).");
 
 	if (url.username || url.password || url.search || url.hash || url.pathname !== "/")
-		throw new UsageError("BETTEROFF_API_URL must be an origin only, such as https://api.betteroff.finance");
+		throw new UsageError(
+			"BETTEROFF_API_URL must be an origin only, such as https://api.betteroff.finance",
+		);
 
 	return url.origin;
 }
@@ -194,7 +197,11 @@ function sessionStore(deps: CliDeps): SessionStore {
 	};
 }
 
-type Credential = { token: string; source: string; renew: (() => Promise<string | null>) | undefined };
+type Credential = {
+	token: string;
+	source: string;
+	renew: (() => Promise<string | null>) | undefined;
+};
 
 async function resolveToken(deps: CliDeps): Promise<Credential | null> {
 	const fromEnv = deps.env.BETTEROFF_API_TOKEN?.trim();
@@ -440,7 +447,9 @@ async function waitForRedirect(deps: CliDeps, server: CallbackServer): Promise<U
 			if (params) return params;
 
 			if (line.trim())
-				deps.stderr(`That is not the address BetterOff sent you to. It starts with ${server.redirectUri}\n`);
+				deps.stderr(
+					`That is not the address BetterOff sent you to. It starts with ${server.redirectUri}\n`,
+				);
 		}
 
 		return await NEVER;
@@ -634,7 +643,8 @@ export async function run(argv: string[], deps: CliDeps): Promise<number> {
 
 		if (!result.ok) throw new ApiError(errorMessage(result.status, result.body, result.retryAfter));
 
-		if (json || !deps.stdoutIsTTY) deps.stdout(`${safeJson(JSON.stringify(result.body, null, 2))}\n`);
+		if (json || !deps.stdoutIsTTY)
+			deps.stdout(`${safeJson(JSON.stringify(result.body, null, 2))}\n`);
 		else deps.stdout(renderPretty(result.body, deps.columns, style));
 
 		return 0;

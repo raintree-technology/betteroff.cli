@@ -1,6 +1,6 @@
+import * as z from "zod";
 import type { JsonObject, JsonValue } from "./json";
 import { safeText } from "./text";
-import * as z from "zod";
 
 export type Style = { bold: (text: string) => string; dim: (text: string) => string };
 
@@ -143,7 +143,10 @@ function isProse(value: JsonValue | undefined): boolean {
 	const text = z.string().safeParse(value).data;
 
 	return (
-		text !== undefined && !DECIMAL.test(text) && !ISO_DATETIME.test(text) && !text.startsWith("http")
+		text !== undefined &&
+		!DECIMAL.test(text) &&
+		!ISO_DATETIME.test(text) &&
+		!text.startsWith("http")
 	);
 }
 
@@ -154,7 +157,10 @@ function labelColumns(columns: string[], rows: JsonObject[]): Set<string> {
 	if (known.length > 0) return new Set(known);
 
 	const first = columns.find(
-		(key) => !isId(key) && !DATE_KEY.test(key) && rows.every((row) => row[key] === null || row[key] === undefined || isProse(row[key])),
+		(key) =>
+			!isId(key) &&
+			!DATE_KEY.test(key) &&
+			rows.every((row) => row[key] === null || row[key] === undefined || isProse(row[key])),
 	);
 
 	return new Set(first ? [first] : []);

@@ -3,3 +3,4 @@ registry = "https://registry.npmjs.org"
 cafile = "./src/ca.pem"
 exact = true
 minimumReleaseAge = 259200
+linker = "isolated"
