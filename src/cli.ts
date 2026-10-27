@@ -87,6 +87,9 @@ const cachedSpecSchema = z.object({
 });
 
 const errorBodySchema = z.looseObject({
+	ok: z.boolean().optional(),
+	error: z.string().optional(),
+	nextStep: z.string().optional(),
 	code: z.string().optional(),
 	message: z.string().optional(),
 	detail: z.string().optional(),
@@ -125,12 +128,15 @@ function apiUrl(deps: CliDeps): string {
 			"BETTEROFF_API_URL must be an origin only, such as https://api.betteroff.finance",
 		);
 
+	if (url.hostname !== "api.betteroff.finance" && !LOOPBACK_HOSTS.has(url.hostname))
+		throw new UsageError("BETTEROFF_API_URL must point to BetterOff or localhost.");
+
 	return url.origin;
 }
 
 async function loadTools(deps: CliDeps): Promise<{ version: string; tools: Tool[] }> {
 	const base = apiUrl(deps);
-	const cachedText = await deps.specCache.read();
+	const cachedText = await deps.specCache.read().catch(() => null);
 	let cached: z.infer<typeof cachedSpecSchema> | undefined;
 
 	try {
@@ -151,7 +157,10 @@ async function loadTools(deps: CliDeps): Promise<{ version: string; tools: Tool[
 		if (!response.ok) throw new ApiError(`HTTP ${response.status}`);
 		const spec = toolsSpecSchema.parse(await response.json());
 
-		await deps.specCache.write(JSON.stringify({ apiUrl: base, fetchedAt: deps.now(), spec }));
+		// The cache is optional; a read-only home directory must not block a valid response.
+		await deps.specCache
+			.write(JSON.stringify({ apiUrl: base, fetchedAt: deps.now(), spec }))
+			.catch(() => {});
 
 		return { version: spec.info.version, tools: toolsFromSpec(spec) };
 	} catch (error) {
@@ -229,7 +238,8 @@ async function resolveToken(deps: CliDeps): Promise<Credential | null> {
 
 function errorMessage(status: number, body: JsonValue, retryAfter: string | null): string {
 	const parsed = errorBodySchema.safeParse(body).data;
-	const text = parsed?.detail ?? parsed?.message ?? parsed?.title ?? `HTTP ${status}`;
+	const text =
+		parsed?.error ?? parsed?.detail ?? parsed?.message ?? parsed?.title ?? `HTTP ${status}`;
 	const code = parsed?.code ? ` (${parsed.code})` : "";
 
 	if (status === 401) return `Not signed in or the token was revoked. Run: betteroff login`;
@@ -240,7 +250,7 @@ function errorMessage(status: number, body: JsonValue, retryAfter: string | null
 		return `Rate limited. Try again in ${seconds} seconds.`;
 	}
 
-	return safeText(`${text}${code}`);
+	return safeText(`${text}${code}${parsed?.nextStep ? `\n${parsed.nextStep}` : ""}`);
 }
 
 async function callTool(deps: CliDeps, token: string, tool: Tool, args: JsonValue) {
@@ -266,9 +276,12 @@ async function callTool(deps: CliDeps, token: string, tool: Tool, args: JsonValu
 		body = null;
 	}
 
+	if (response.ok && body === null)
+		throw new ApiError("The API returned an invalid tool result. Try again later.");
+
 	return {
 		status: response.status,
-		ok: response.ok,
+		ok: response.ok && errorBodySchema.safeParse(body).data?.ok !== false,
 		body,
 		retryAfter: response.headers.get("retry-after"),
 	};

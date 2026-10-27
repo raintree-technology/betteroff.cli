@@ -167,14 +167,14 @@ rm -rf ~/.cache/betteroff
 | Variable | Use |
 | --- | --- |
 | `BETTEROFF_API_TOKEN` | Personal API token (`bo_pat_...`). Overrides the saved token. |
-| `BETTEROFF_API_URL` | API origin. Defaults to `https://api.betteroff.finance`. |
+| `BETTEROFF_API_URL` | BetterOff API origin or loopback development origin. Defaults to `https://api.betteroff.finance`. |
 | `NO_COLOR` | Any value turns off terminal styling. |
 
 ## Security
 
 - **Read-only.** Only tools the spec marks read-only become commands, and tools that propose changes or request transfers are left out by name as well. Give the token read scopes only; the token's scopes are the limit BetterOff enforces.
 - **Sign-in uses OAuth with PKCE.** `betteroff login` uses the authorization code flow on a loopback redirect (RFC 8252), checks `state` and the issuer on the way back, and identifies itself with a client metadata document on betteroff.finance that allows only read scopes. Each refresh replaces the refresh token, and a lock keeps two commands from refreshing at once. `betteroff logout` revokes the sign-in at BetterOff.
-- **Tokens go only to BetterOff, over HTTPS.** They are saved in the system keychain, never in a file. On macOS it goes through Apple's `security` tool on stdin, never on a command line. `BETTEROFF_API_URL` must be an `https://` origin (`http://` only for localhost), and the CLI never follows a redirect, so the token cannot be sent somewhere else by mistake.
+- **Tokens go only to BetterOff, over HTTPS.** They are saved in the system keychain, never in a file. On macOS it goes through Apple's `security` tool on stdin, never on a command line. `BETTEROFF_API_URL` accepts only `api.betteroff.finance` or a loopback host, using HTTPS (`http://` only for loopback development), and the CLI never follows a redirect, so the token cannot be sent somewhere else by mistake.
 - **Pinned trust.** Requests trust a bundled Mozilla root certificate snapshot (`src/ca.pem`) instead of Bun's built-in list, which still includes roots Mozilla has distrusted.
 - **Safe terminal output.** Merchant names and other text come from banks and other third parties. The CLI replaces control characters and bidirectional overrides before printing, so that text cannot move the cursor, rewrite the screen, set the clipboard, or reorder what you see. `--json` output escapes the same characters and still parses to the same value.
 - **Supply chain.** Dependencies are pinned to exact versions with a frozen lockfile, and new releases wait 3 days before install. CI actions are pinned to commit SHAs with read-only tokens. CodeQL scans the code and workflows. OSV-Scanner checks every version in `bun.lock` against known vulnerabilities on each pull request and daily. Pull requests also fail on vulnerable new Actions, and Socket reviews dependency changes.

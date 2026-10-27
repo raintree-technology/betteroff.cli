@@ -6,6 +6,55 @@ import { api, fakeDeps, fixtureSpec, TOKEN } from "./fixtures";
 const accounts = [{ id: "acc-1", displayName: "Checking", balance: "10", currency: "USD" }];
 
 describe("run", () => {
+	test("preserves tool error recovery instructions", async () => {
+		const harness = fakeDeps(
+			api(() =>
+				Response.json(
+					{
+						ok: false,
+						error: "Core access required.",
+						code: "AGENT_SUBSCRIPTION_INACTIVE",
+						nextStep: "Open BetterOff settings.",
+						retryable: false,
+					},
+					{ status: 402 },
+				),
+			),
+			{ env: { BETTEROFF_API_TOKEN: TOKEN } },
+		);
+		expect(await run(["accounts"], harness.deps)).toBe(1);
+		expect(harness.stderr()).toContain("Core access required.");
+		expect(harness.stderr()).toContain("Open BetterOff settings.");
+	});
+
+	test.each([
+		"not JSON",
+		"null",
+		'{"ok":false,"error":"Unavailable","code":"INCOMPLETE_DATA","nextStep":"Reconnect."}',
+	])("rejects an unsuccessful tool result: %s", async (body) => {
+		const harness = fakeDeps(
+			api(() => new Response(body)),
+			{ env: { BETTEROFF_API_TOKEN: TOKEN } },
+		);
+		expect(await run(["accounts"], harness.deps)).toBe(1);
+		expect(harness.stdout()).toBe("");
+	});
+
+	test.each(["read", "write"] as const)(
+		"a failed cache %s does not block commands",
+		async (operation) => {
+			const harness = fakeDeps(
+				api(() => Response.json(accounts)),
+				{ env: { BETTEROFF_API_TOKEN: TOKEN } },
+			);
+			harness.deps.specCache[operation] = async () => {
+				throw new Error("Permission denied");
+			};
+			expect(await run(["accounts"], harness.deps)).toBe(0);
+			expect(harness.stdout()).toContain("Checking");
+		},
+	);
+
 	test("calls the tool with the token and prints JSON when piped", async () => {
 		const harness = fakeDeps(
 			api(() => Response.json(accounts)),
@@ -152,6 +201,8 @@ describe("run", () => {
 		["https://api.betteroff.finance/v1", "origin only"],
 		["https://user:pass@api.betteroff.finance", "origin only"],
 		["not a url", "not a valid URL"],
+		["https://example.com", "must point to BetterOff"],
+		["https://api.betteroff.finance.example.com", "must point to BetterOff"],
 	])("refuses BETTEROFF_API_URL=%p before sending anything", async (url, message) => {
 		const harness = fakeDeps(
 			api(() => Response.json(accounts)),
