@@ -27,7 +27,7 @@
 
 # BetterOff CLI
 
-Read your [BetterOff](https://betteroff.finance) household from the terminal: accounts, net worth, transactions, spending, cash flow, recurring bills, portfolio, and debts.
+Read your [BetterOff](https://betteroff.finance/github) household from the terminal: accounts, net worth, transactions, spending, cash flow, recurring bills, portfolio, and debts.
 
 The CLI is read-only. It cannot move money, change records, or approve anything. It runs on macOS, Linux, and Windows.
 
@@ -50,7 +50,7 @@ The accounts above are made up.
 
 ## Before you start
 
-You need a [BetterOff](https://betteroff.finance) account with the accounts and wallets you want to read connected, and a BetterOff Core plan. The Free plan and trials do not include CLI access. Every member of the household must turn on Chat data access in BetterOff's Settings before any agent, this CLI included, can read household data.
+You need a [BetterOff](https://betteroff.finance/github) account with the accounts and wallets you want to read connected, and a BetterOff Core plan. The Free plan and trials do not include CLI access. Every member of the household must turn on Chat data access in BetterOff's Settings before any agent, this CLI included, can read household data.
 
 ## Install
 
